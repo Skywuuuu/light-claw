@@ -60,6 +60,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             task_heartbeat_interval_seconds=60,
             cron_enabled=True,
             cron_poll_interval_seconds=60,
+            status_heartbeat_enabled=False,
             status_heartbeat_seconds=3600,
             inbound_message_ttl_seconds=60,
             default_cli_provider="codex",

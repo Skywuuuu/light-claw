@@ -158,6 +158,7 @@ class Settings:
     task_heartbeat_interval_seconds: int
     cron_enabled: bool
     cron_poll_interval_seconds: int
+    status_heartbeat_enabled: bool
     status_heartbeat_seconds: int
     inbound_message_ttl_seconds: int
     default_cli_provider: str
@@ -216,6 +217,9 @@ class Settings:
             cron_enabled=_read_bool("LIGHT_CLAW_CRON_ENABLED", True),
             cron_poll_interval_seconds=_read_int(
                 "LIGHT_CLAW_CRON_POLL_INTERVAL_SECONDS", 60
+            ),
+            status_heartbeat_enabled=_read_bool(
+                "LIGHT_CLAW_STATUS_HEARTBEAT_ENABLED", True
             ),
             status_heartbeat_seconds=_read_int(
                 "LIGHT_CLAW_STATUS_HEARTBEAT_SECONDS", 30

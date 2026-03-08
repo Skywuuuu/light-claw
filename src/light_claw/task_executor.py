@@ -83,7 +83,7 @@ class TaskExecutor:
             )
         tracker = _ActivityTracker(asyncio.get_running_loop().time())
         heartbeat_task: asyncio.Task[None] | None = None
-        if reply_target is not None:
+        if reply_target is not None and self.settings.status_heartbeat_enabled:
             heartbeat_task = asyncio.create_task(
                 self._send_heartbeat(reply_target, workspace, tracker)
             )
