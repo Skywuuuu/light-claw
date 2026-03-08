@@ -49,6 +49,9 @@ def parse_command(content: str) -> Optional[Command]:
         sub = parts[1].lower() if len(parts) > 1 else "list"
         if sub in {"list", "ls"}:
             return Command(kind="task_list")
+        if sub in {"status", "show"}:
+            task_id = parts[2].strip() if len(parts) > 2 else ""
+            return Command(kind="task_status", argument=task_id or None)
         if sub in {"create", "new"}:
             prompt = " ".join(parts[2:]).strip()
             return Command(kind="task_create", argument=prompt or None)
@@ -83,6 +86,7 @@ def help_text() -> str:
             "/workspace use <id|index>",
             "/workspace current",
             "/task list",
+            "/task status <id|index>",
             "/task create <prompt>",
             "/task cancel <id>",
             "/cron list",

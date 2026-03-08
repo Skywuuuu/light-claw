@@ -28,6 +28,11 @@ class CommandsTest(unittest.TestCase):
         self.assertEqual(task_command.kind, "task_create")
         self.assertEqual(task_command.argument, "Review open loops")
 
+        task_status_command = parse_command("/task status 1")
+        self.assertIsNotNone(task_status_command)
+        self.assertEqual(task_status_command.kind, "task_status")
+        self.assertEqual(task_status_command.argument, "1")
+
         cron_command = parse_command("/cron every 60 1")
         self.assertIsNotNone(cron_command)
         self.assertEqual(cron_command.kind, "cron_every")
@@ -38,6 +43,7 @@ class CommandsTest(unittest.TestCase):
         self.assertIn("/workspace list", text)
         self.assertIn("/cli list", text)
         self.assertIn("/task list", text)
+        self.assertIn("/task status <id|index>", text)
         self.assertIn("/cron every <seconds> <task_id>", text)
         self.assertIn("/reset", text)
 

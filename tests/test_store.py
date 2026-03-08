@@ -158,6 +158,15 @@ class StoreTest(unittest.TestCase):
                 conversation_owner_id="ou_1",
             )
             self.assertIsNotNone(run)
+            latest_running = store.get_latest_task_run(
+                "agent-a",
+                "ou_1",
+                "default",
+                task.task_id,
+            )
+            self.assertIsNotNone(latest_running)
+            self.assertEqual(latest_running.run_id, run.run_id)
+            self.assertEqual(latest_running.status, "running")
             self.assertIsNone(
                 store.claim_workspace_task(
                     "agent-a",
@@ -181,6 +190,16 @@ class StoreTest(unittest.TestCase):
             self.assertEqual(updated.status, "running")
             self.assertEqual(updated.last_result_excerpt, "All good")
             self.assertEqual(updated.next_run_at, 123.0)
+            latest_completed = store.get_latest_task_run(
+                "agent-a",
+                "ou_1",
+                "default",
+                task.task_id,
+            )
+            self.assertIsNotNone(latest_completed)
+            self.assertEqual(latest_completed.run_id, run.run_id)
+            self.assertEqual(latest_completed.status, "succeeded")
+            self.assertEqual(latest_completed.result_excerpt, "All good")
             store.close()
 
     def test_scheduled_tasks_can_be_created_listed_and_removed(self) -> None:

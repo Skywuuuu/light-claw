@@ -29,6 +29,7 @@
   - `/cli use <provider>`
   - `/help`
   - `/task list`
+- `/task status <id|index>`
   - `/task create <prompt>`
   - `/task cancel <id|index>`
   - `/cron list`
@@ -221,6 +222,7 @@ Each workspace can now keep long-running task definitions in SQLite. A task stor
 Minimal task commands:
 
 - `/task list`
+- `/task status <id|index>`
 - `/task create <prompt>`
 - `/task cancel <id|index>`
 - `/cron list`

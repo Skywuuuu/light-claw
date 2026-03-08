@@ -875,6 +875,26 @@ class StateStore:
             ).fetchone()
         return self._row_to_workspace_task(row) if row else None
 
+    def get_latest_task_run(
+        self,
+        agent_id: str,
+        owner_id: str,
+        workspace_id: str,
+        task_id: str,
+    ) -> Optional[TaskRunRecord]:
+        with self._lock:
+            row = self._db.execute(
+                """
+                SELECT *
+                FROM task_run
+                WHERE agent_id = ? AND owner_id = ? AND workspace_id = ? AND task_id = ?
+                ORDER BY started_at DESC, run_id DESC
+                LIMIT 1
+                """,
+                (agent_id, owner_id, workspace_id, task_id),
+            ).fetchone()
+        return self._row_to_task_run(row) if row else None
+
     def update_workspace_task(
         self,
         agent_id: str,

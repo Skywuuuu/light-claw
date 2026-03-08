@@ -14,6 +14,7 @@ from .models import (
     TASK_STATUS_CANCELLED,
     FeishuInboundMessage,
     ScheduledTaskRecord,
+    TaskRunRecord,
     WorkspaceRecord,
     WorkspaceTaskRecord,
 )
@@ -261,6 +262,28 @@ class ChatService:
                 workspace.workspace_id,
             )
             return self._render_task_list(tasks)
+        if command.kind == "task_status":
+            if not command.argument:
+                return "Usage: /task status <id|index>"
+            workspace = self._ensure_current_workspace(
+                owner_id=message.owner_id,
+                conversation_id=message.conversation_id,
+            )
+            tasks = self.store.list_workspace_tasks(
+                self.agent.agent_id,
+                message.owner_id,
+                workspace.workspace_id,
+            )
+            task = self._resolve_task_target(tasks, command.argument)
+            if task is None:
+                return "Task not found. Use `/task list` first."
+            latest_run = self.store.get_latest_task_run(
+                self.agent.agent_id,
+                message.owner_id,
+                workspace.workspace_id,
+                task.task_id,
+            )
+            return self._render_task_status(workspace, task, latest_run)
         if command.kind == "task_create":
             if not command.argument:
                 return "Usage: /task create <prompt>"
@@ -525,6 +548,43 @@ class ChatService:
             )
             if task.next_run_at is not None:
                 lines.append("Next run at: {}".format(int(task.next_run_at)))
+        return "\n".join(lines)
+
+    def _render_task_status(
+        self,
+        workspace: WorkspaceRecord,
+        task: WorkspaceTaskRecord,
+        latest_run: TaskRunRecord | None,
+    ) -> str:
+        lines = [
+            "Task status:",
+            "{} ({})".format(task.title, task.task_id),
+            "Workspace: {} ({})".format(workspace.name, workspace.workspace_id),
+            "Status: {}".format(task.status),
+            "Created at: {}".format(int(task.created_at)),
+        ]
+        if task.last_run_at is not None:
+            lines.append("Last run at: {}".format(int(task.last_run_at)))
+        else:
+            lines.append("Last run at: (never)")
+        if task.next_run_at is not None:
+            lines.append("Next run at: {}".format(int(task.next_run_at)))
+        else:
+            lines.append("Next run at: (none)")
+        if latest_run is not None:
+            lines.extend(
+                [
+                    "Latest run: {} [{}]".format(latest_run.run_id, latest_run.status),
+                    "Trigger: {}".format(latest_run.trigger_source),
+                    "Started at: {}".format(int(latest_run.started_at)),
+                ]
+            )
+            if latest_run.finished_at is not None:
+                lines.append("Finished at: {}".format(int(latest_run.finished_at)))
+        if task.last_result_excerpt:
+            lines.extend(["Last result:", task.last_result_excerpt])
+        if task.last_error_message:
+            lines.extend(["Last error:", task.last_error_message])
         return "\n".join(lines)
 
     def _render_schedule_list(self, schedules: Iterable[ScheduledTaskRecord]) -> str:
