@@ -3,11 +3,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from concurrent.futures import Future
+from typing import Callable
 
 import lark_oapi as lark
 
 from .chat import ChatService
-from .config import Settings
 from .feishu import parse_long_connection_message
 
 
@@ -19,24 +19,35 @@ class FeishuLongConnectionClient:
 
     def __init__(
         self,
-        settings: Settings,
+        agent_id: str,
+        app_id: str,
+        app_secret: str,
         chat_service: ChatService,
         loop: asyncio.AbstractEventLoop,
+        on_running_change: Callable[[str, bool], None] | None = None,
     ) -> None:
-        self._settings = settings
+        self._agent_id = agent_id
+        self._app_id = app_id
         self._chat_service = chat_service
         self._loop = loop
+        self._on_running_change = on_running_change
         self._client = lark.ws.Client(
-            self._settings.feishu_app_id or "",
-            self._settings.feishu_app_secret or "",
+            app_id,
+            app_secret,
             event_handler=self._build_event_handler(),
             log_level=lark.LogLevel.INFO,
         )
 
     def start(self) -> None:
         """Start the blocking Feishu websocket client."""
-        log.info("Starting Feishu long connection client")
-        self._client.start()
+        log.info("Starting Feishu long connection client for agent %s", self._agent_id)
+        if self._on_running_change is not None:
+            self._on_running_change(self._agent_id, True)
+        try:
+            self._client.start()
+        finally:
+            if self._on_running_change is not None:
+                self._on_running_change(self._agent_id, False)
 
     def _build_event_handler(self) -> lark.EventDispatcherHandler:
         return (
@@ -46,7 +57,11 @@ class FeishuLongConnectionClient:
         )
 
     def _handle_message_receive(self, event: lark.im.v1.P2ImMessageReceiveV1) -> None:
-        inbound = parse_long_connection_message(event)
+        inbound = parse_long_connection_message(
+            event,
+            agent_id=self._agent_id,
+            bot_app_id=self._app_id,
+        )
         if inbound is None:
             log.info("Ignored unsupported Feishu long connection event payload")
             return

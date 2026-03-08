@@ -35,10 +35,16 @@ class FeishuLongConnectionParsingTest(unittest.TestCase):
             }
         )
 
-        inbound = parse_long_connection_message(event)
+        inbound = parse_long_connection_message(
+            event,
+            agent_id="writer",
+            bot_app_id="cli_test",
+        )
 
         self.assertIsNotNone(inbound)
         assert inbound is not None
+        self.assertEqual(inbound.agent_id, "writer")
+        self.assertEqual(inbound.bot_app_id, "cli_test")
         self.assertEqual(inbound.owner_id, "ou_test")
         self.assertEqual(inbound.conversation_id, "feishu:chat:oc_123")
         self.assertEqual(inbound.reply_target.receive_id_type, "chat_id")

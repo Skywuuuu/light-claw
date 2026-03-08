@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from .models import CliRunResult
 
@@ -50,6 +50,7 @@ class CodexRunner:
         timeout_min_seconds: int = 180,
         timeout_max_seconds: int = 900,
         timeout_per_char_ms: int = 80,
+        stall_timeout_seconds: int = 120,
     ) -> None:
         self.codex_bin = codex_bin
         self.sandbox = sandbox
@@ -58,6 +59,7 @@ class CodexRunner:
         self.timeout_min_seconds = timeout_min_seconds
         self.timeout_max_seconds = timeout_max_seconds
         self.timeout_per_char_ms = timeout_per_char_ms
+        self.stall_timeout_seconds = stall_timeout_seconds
 
     async def run(
         self,
@@ -66,6 +68,7 @@ class CodexRunner:
         session_id: Optional[str] = None,
         model: Optional[str] = None,
         search: Optional[bool] = None,
+        on_activity: Optional[Callable[[], None]] = None,
     ) -> CliRunResult:
         args = self._build_args(
             prompt=prompt,
@@ -75,24 +78,61 @@ class CodexRunner:
             search=self.default_search if search is None else search,
         )
         timeout = self._resolve_timeout_seconds(prompt)
-        process = await asyncio.create_subprocess_exec(
-            self.codex_bin,
-            *args,
-            cwd=str(workspace_dir),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout_task = asyncio.create_task(self._read_stream(process.stdout))
-        stderr_task = asyncio.create_task(self._read_stream(process.stderr))
-
         try:
-            await asyncio.wait_for(process.wait(), timeout=timeout)
+            process = await asyncio.create_subprocess_exec(
+                self.codex_bin,
+                *args,
+                cwd=str(workspace_dir),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except OSError as exc:
+            raise CodexRunnerError(
+                "failed to start codex: {}".format(str(exc))
+            ) from exc
+
+        last_activity_at = asyncio.get_running_loop().time()
+
+        def touch_activity() -> None:
+            nonlocal last_activity_at
+            last_activity_at = asyncio.get_running_loop().time()
+            if on_activity is not None:
+                on_activity()
+
+        stdout_task = asyncio.create_task(self._read_stream(process.stdout, touch_activity))
+        stderr_task = asyncio.create_task(self._read_stream(process.stderr, touch_activity))
+
+        start_time = asyncio.get_running_loop().time()
+        try:
+            while True:
+                if process.returncode is not None:
+                    break
+                if asyncio.get_running_loop().time() - start_time > timeout:
+                    raise asyncio.TimeoutError()
+                if (
+                    self.stall_timeout_seconds > 0
+                    and asyncio.get_running_loop().time() - last_activity_at
+                    > self.stall_timeout_seconds
+                ):
+                    raise CodexRunnerError(
+                        "codex stalled for {} seconds".format(
+                            self.stall_timeout_seconds
+                        )
+                    )
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
         except asyncio.TimeoutError as exc:
             process.kill()
             await process.wait()
             raise CodexRunnerError(
                 "codex timed out after {} seconds".format(timeout)
             ) from exc
+        except CodexRunnerError:
+            process.kill()
+            await process.wait()
+            raise
 
         stdout_text = await stdout_task
         stderr_text = await stderr_task
@@ -110,7 +150,9 @@ class CodexRunner:
         )
 
     async def _read_stream(
-        self, stream: Optional[asyncio.StreamReader]
+        self,
+        stream: Optional[asyncio.StreamReader],
+        on_activity: Optional[Callable[[], None]] = None,
     ) -> str:
         if stream is None:
             return ""
@@ -119,6 +161,8 @@ class CodexRunner:
             chunk = await stream.read(65536)
             if not chunk:
                 break
+            if on_activity is not None:
+                on_activity()
             chunks.append(chunk.decode("utf-8", errors="replace"))
         return "".join(chunks)
 

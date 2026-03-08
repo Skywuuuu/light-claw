@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Protocol
+from pathlib import Path
+from typing import Callable, Dict, Iterable, List, Protocol
 
 from .codex_runner import CodexRunner, CodexRunnerError
-from .config import Settings
+from .config import AgentSettings, Settings
 from .models import CliProviderInfo, CliRunResult
 
 
@@ -19,8 +20,9 @@ class CliRunner(Protocol):
     async def run(
         self,
         prompt: str,
-        workspace_dir,
+        workspace_dir: Path,
         session_id: str | None = None,
+        on_activity: Callable[[], None] | None = None,
     ) -> CliRunResult:
         ...
 
@@ -34,14 +36,16 @@ class CodexCliAdapter:
     async def run(
         self,
         prompt: str,
-        workspace_dir,
+        workspace_dir: Path,
         session_id: str | None = None,
+        on_activity: Callable[[], None] | None = None,
     ) -> CliRunResult:
         try:
             return await self.runner.run(
                 prompt=prompt,
                 workspace_dir=workspace_dir,
                 session_id=session_id,
+                on_activity=on_activity,
             )
         except CodexRunnerError as exc:
             raise CliRunnerError(str(exc)) from exc
@@ -57,15 +61,20 @@ class CliRunnerRegistry:
         self._runners = dict(runners)
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> "CliRunnerRegistry":
+    def from_settings(
+        cls,
+        settings: Settings,
+        agent: AgentSettings | None = None,
+    ) -> "CliRunnerRegistry":
         codex_runner = CodexRunner(
             codex_bin=settings.codex_bin,
-            sandbox=settings.codex_sandbox,
-            default_model=settings.codex_model,
-            default_search=settings.codex_search,
+            sandbox=agent.codex_sandbox if agent else settings.codex_sandbox,
+            default_model=agent.codex_model if agent else settings.codex_model,
+            default_search=agent.codex_search if agent else settings.codex_search,
             timeout_min_seconds=settings.codex_timeout_min_seconds,
             timeout_max_seconds=settings.codex_timeout_max_seconds,
             timeout_per_char_ms=settings.codex_timeout_per_char_ms,
+            stall_timeout_seconds=settings.codex_stall_timeout_seconds,
         )
         codex_adapter = CodexCliAdapter(codex_runner)
         providers = [

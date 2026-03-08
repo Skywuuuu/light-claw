@@ -1,0 +1,21 @@
+[Unit]
+Description=light-claw multi-agent bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/absolute/path/to/light-claw
+EnvironmentFile=/absolute/path/to/light-claw/.env
+ExecStart=/usr/bin/env uv run light-claw
+Restart=always
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=30
+KillSignal=SIGINT
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

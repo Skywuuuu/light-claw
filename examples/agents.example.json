@@ -1,0 +1,32 @@
+{
+  "agents": [
+    {
+      "agent_id": "writer",
+      "name": "Writer Agent",
+      "app_id": "cli_writer",
+      "app_secret": "writer_secret",
+      "verification_token": "writer_token",
+      "default_workspace_name": "writer",
+      "allow_from": "*",
+      "codex_model": "",
+      "codex_search": false,
+      "codex_sandbox": "full-auto",
+      "skills_path": "agent-config/writer-skills.md",
+      "mcp_config_path": "agent-config/writer-mcp.json"
+    },
+    {
+      "agent_id": "reviewer",
+      "name": "Reviewer Agent",
+      "app_id": "cli_reviewer",
+      "app_secret": "reviewer_secret",
+      "verification_token": "reviewer_token",
+      "default_workspace_name": "reviewer",
+      "allow_from": "*",
+      "codex_model": "",
+      "codex_search": false,
+      "codex_sandbox": "full-auto",
+      "skills_path": "agent-config/reviewer-skills.md",
+      "mcp_config_path": "agent-config/reviewer-mcp.json"
+    }
+  ]
+}

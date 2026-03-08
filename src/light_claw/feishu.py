@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import httpx
@@ -14,6 +15,10 @@ if TYPE_CHECKING:
 
 FEISHU_API_BASE = "https://open.feishu.cn/open-apis"
 MAX_TEXT_CHUNK_BYTES = 2000
+RETRYABLE_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
+
+
+log = logging.getLogger("light_claw.feishu")
 
 
 class FeishuClient:
@@ -22,6 +27,8 @@ class FeishuClient:
         app_id: str,
         app_secret: str,
         timeout_seconds: float = 15.0,
+        max_retries: int = 3,
+        retry_delay_seconds: float = 1.0,
     ) -> None:
         self.app_id = app_id
         self.app_secret = app_secret
@@ -29,6 +36,8 @@ class FeishuClient:
         self._token_lock = asyncio.Lock()
         self._tenant_access_token: Optional[str] = None
         self._tenant_access_token_expires_at: float = 0.0
+        self.max_retries = max_retries
+        self.retry_delay_seconds = retry_delay_seconds
 
     async def close(self) -> None:
         await self.client.aclose()
@@ -51,7 +60,7 @@ class FeishuClient:
         content: Dict[str, Any],
     ) -> None:
         token = await self._get_tenant_access_token()
-        response = await self.client.post(
+        response = await self._post_with_retry(
             FEISHU_API_BASE + "/im/v1/messages",
             params={"receive_id_type": target.receive_id_type},
             headers={"Authorization": "Bearer " + token},
@@ -61,7 +70,6 @@ class FeishuClient:
                 "content": json.dumps(content, ensure_ascii=False),
             },
         )
-        response.raise_for_status()
         payload = response.json()
         if payload.get("code") not in (0, None):
             raise RuntimeError(
@@ -77,14 +85,13 @@ class FeishuClient:
             ):
                 return self._tenant_access_token
 
-            response = await self.client.post(
+            response = await self._post_with_retry(
                 FEISHU_API_BASE + "/auth/v3/tenant_access_token/internal",
                 json={
                     "app_id": self.app_id,
                     "app_secret": self.app_secret,
                 },
             )
-            response.raise_for_status()
             payload = response.json()
             if payload.get("code") not in (0, None):
                 raise RuntimeError(
@@ -97,6 +104,42 @@ class FeishuClient:
             self._tenant_access_token = token
             self._tenant_access_token_expires_at = now + expire
             return token
+
+    async def _post_with_retry(self, url: str, **kwargs: Any) -> httpx.Response:
+        attempts = max(1, self.max_retries)
+        last_error: Exception | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                response = await self.client.post(url, **kwargs)
+                if response.status_code not in RETRYABLE_STATUS_CODES:
+                    response.raise_for_status()
+                    return response
+                last_error = httpx.HTTPStatusError(
+                    f"retryable status code: {response.status_code}",
+                    request=response.request,
+                    response=response,
+                )
+            except httpx.HTTPError as exc:
+                last_error = exc
+                if isinstance(exc, httpx.HTTPStatusError):
+                    status_code = exc.response.status_code
+                    if status_code not in RETRYABLE_STATUS_CODES:
+                        raise
+            if attempt >= attempts:
+                break
+            delay = self.retry_delay_seconds * attempt
+            log.warning(
+                "Feishu request retrying",
+                extra={
+                    "app_id": self.app_id,
+                    "attempt": attempt,
+                    "url": url,
+                },
+            )
+            await asyncio.sleep(delay)
+        if last_error is None:
+            raise RuntimeError("Feishu request failed without an exception")
+        raise last_error
 
 
 def split_text_by_utf8_bytes(content: str, max_bytes: int = MAX_TEXT_CHUNK_BYTES) -> list[str]:
@@ -126,6 +169,8 @@ def verify_token(expected: Optional[str], actual: Optional[str]) -> bool:
 
 
 def _build_inbound_message(
+    agent_id: str,
+    bot_app_id: str,
     owner_id: str,
     message_id: str,
     message_type: str,
@@ -145,6 +190,8 @@ def _build_inbound_message(
         conversation_id = "feishu:chat:" + chat_id
 
     return FeishuInboundMessage(
+        agent_id=agent_id,
+        bot_app_id=bot_app_id,
         owner_id=owner_id,
         conversation_id=conversation_id,
         message_id=message_id,
@@ -156,7 +203,12 @@ def _build_inbound_message(
     )
 
 
-def parse_inbound_message(payload: Dict[str, Any]) -> Optional[FeishuInboundMessage]:
+def parse_inbound_message(
+    payload: Dict[str, Any],
+    *,
+    agent_id: str,
+    bot_app_id: str,
+) -> Optional[FeishuInboundMessage]:
     event = payload.get("event")
     if not isinstance(event, dict):
         return None
@@ -183,6 +235,8 @@ def parse_inbound_message(payload: Dict[str, Any]) -> Optional[FeishuInboundMess
         return None
 
     return _build_inbound_message(
+        agent_id=agent_id,
+        bot_app_id=bot_app_id,
         owner_id=owner_id,
         message_id=message_id,
         message_type=message_type,
@@ -194,6 +248,9 @@ def parse_inbound_message(payload: Dict[str, Any]) -> Optional[FeishuInboundMess
 
 def parse_long_connection_message(
     event: "lark.im.v1.P2ImMessageReceiveV1",
+    *,
+    agent_id: str,
+    bot_app_id: str,
 ) -> Optional[FeishuInboundMessage]:
     body = getattr(event, "event", None)
     if body is None:
@@ -218,6 +275,8 @@ def parse_long_connection_message(
         return None
 
     return _build_inbound_message(
+        agent_id=agent_id,
+        bot_app_id=bot_app_id,
         owner_id=owner_id,
         message_id=message_id,
         message_type=message_type,
