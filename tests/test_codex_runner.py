@@ -34,6 +34,7 @@ class CodexRunnerTest(unittest.TestCase):
             'shell_environment_policy.set.HTTPS_PROXY="http://127.0.0.1:7890"',
             args,
         )
+        self.assertIn("sandbox_workspace_write.network_access=true", args)
 
     def test_build_args_skips_proxy_overrides_when_env_is_missing(self) -> None:
         runner = CodexRunner()
@@ -66,6 +67,20 @@ class CodexRunnerTest(unittest.TestCase):
             if value.startswith("shell_environment_policy.set.")
         ]
         self.assertEqual(proxy_args, [])
+        self.assertIn("sandbox_workspace_write.network_access=true", args)
+
+    def test_build_args_skips_workspace_network_override_without_sandbox(self) -> None:
+        runner = CodexRunner(sandbox="none")
+        workspace_dir = Path("/tmp/light-claw")
+        args = runner._build_args(
+            prompt="test prompt",
+            workspace_dir=workspace_dir,
+            session_id=None,
+            model=None,
+            search=False,
+        )
+
+        self.assertNotIn("sandbox_workspace_write.network_access=true", args)
 
 
 if __name__ == "__main__":

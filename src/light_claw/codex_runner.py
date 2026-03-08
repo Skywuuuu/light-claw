@@ -206,12 +206,18 @@ class CodexRunner:
 
         if model:
             args.extend(["--model", model])
+        args.extend(self._build_sandbox_config_args())
         args.extend(self._build_proxy_config_args())
         args = ["--cd", str(workspace_dir)] + args
         if search:
             args = ["--search"] + args
         args.append(prompt)
         return args
+
+    def _build_sandbox_config_args(self) -> list[str]:
+        if self.sandbox == "none":
+            return []
+        return ["--config", "sandbox_workspace_write.network_access=true"]
 
     def _build_proxy_config_args(self) -> list[str]:
         args: list[str] = []

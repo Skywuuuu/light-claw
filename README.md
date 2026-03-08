@@ -132,6 +132,7 @@ cp .env.example .env
    - `LIGHT_CLAW_CRON_POLL_INTERVAL_SECONDS=60` controls the cron polling interval.
    - `LIGHT_CLAW_STATUS_HEARTBEAT_SECONDS=30` controls progress heartbeat messages.
    - `LIGHT_CLAW_BASE_DIR=` pins the runtime base path for `systemd`.
+   - In `LIGHT_CLAW_SANDBOX=full-auto`, `light-claw` enables outbound network access for Codex workspace-write sandbox commands.
    - `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` are forwarded into Codex sandboxed shell commands when set in the host environment.
 
 4. Ensure `codex` is installed and can run non-interactively on this machine.
