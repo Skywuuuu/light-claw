@@ -2,10 +2,23 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Callable, Optional
 
 from .models import CliRunResult
+
+
+PROXY_ENV_KEYS = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+)
 
 
 class CodexRunnerError(RuntimeError):
@@ -193,11 +206,31 @@ class CodexRunner:
 
         if model:
             args.extend(["--model", model])
+        args.extend(self._build_proxy_config_args())
         args = ["--cd", str(workspace_dir)] + args
         if search:
             args = ["--search"] + args
         args.append(prompt)
         return args
+
+    def _build_proxy_config_args(self) -> list[str]:
+        args: list[str] = []
+        for key, value in self._read_proxy_environment().items():
+            args.extend(
+                [
+                    "--config",
+                    f"shell_environment_policy.set.{key}={json.dumps(value)}",
+                ]
+            )
+        return args
+
+    def _read_proxy_environment(self) -> dict[str, str]:
+        proxy_env: dict[str, str] = {}
+        for key in PROXY_ENV_KEYS:
+            value = os.getenv(key)
+            if value:
+                proxy_env[key] = value
+        return proxy_env
 
     def _resolve_timeout_seconds(self, prompt: str) -> int:
         estimate = self.timeout_min_seconds + int(
