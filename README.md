@@ -10,6 +10,7 @@
 - Per-workspace CLI provider selection
 - Each workspace is bootstrapped with `AGENTS.md`, `memory/`, and agent-local tool profile files
 - CLI conversations resume on the same Feishu conversation until `/reset` or workspace switch
+- Workspace-scoped background tasks with SQLite-backed schedules and run history
 
 ## What this MVP supports
 
@@ -27,6 +28,12 @@
   - `/cli current`
   - `/cli use <provider>`
   - `/help`
+  - `/task list`
+  - `/task create <prompt>`
+  - `/task cancel <id|index>`
+  - `/cron list`
+  - `/cron every <seconds> <task_id>`
+  - `/cron remove <id|index>`
   - `/workspace list`
   - `/workspace create <name>`
   - `/workspace use <id|index>`
@@ -44,10 +51,13 @@ src/light_claw/
   codex_runner.py
   commands.py
   config.py
+  cron.py
   feishu.py
+  heartbeat.py
   models.py
   server.py
   store.py
+  task_executor.py
   workspaces.py
 ```
 
@@ -116,6 +126,10 @@ cp .env.example .env
 
    Optional runtime settings:
    - `CODEX_STALL_TIMEOUT_SECONDS=120` fails stalled Codex runs.
+   - `LIGHT_CLAW_TASK_HEARTBEAT_ENABLED=true` enables workspace task progression scans.
+   - `LIGHT_CLAW_TASK_HEARTBEAT_INTERVAL_SECONDS=1800` controls how often running tasks are resumed.
+   - `LIGHT_CLAW_CRON_ENABLED=true` enables scheduled task polling.
+   - `LIGHT_CLAW_CRON_POLL_INTERVAL_SECONDS=60` controls the cron polling interval.
    - `LIGHT_CLAW_STATUS_HEARTBEAT_SECONDS=30` controls progress heartbeat messages.
    - `LIGHT_CLAW_BASE_DIR=` pins the runtime base path for `systemd`.
 
@@ -197,6 +211,26 @@ Each workspace also stores a selected CLI provider. The current implementation s
 - `custom`: reserved provider slot
 
 That means the execution path is no longer hardcoded to Codex. Adding Claude Code later is now an adapter task instead of a service-wide refactor.
+
+## Task system
+
+Each workspace can now keep long-running task definitions in SQLite. A task stores the prompt, last result summary, next heartbeat time, and the Feishu reply target that should receive background updates.
+
+Minimal task commands:
+
+- `/task list`
+- `/task create <prompt>`
+- `/task cancel <id|index>`
+- `/cron list`
+- `/cron every <seconds> <task_id>`
+- `/cron remove <id|index>`
+
+Execution model:
+
+- normal chat messages still run immediately in the current workspace
+- `TaskExecutor` reuses the same CLI runner abstraction for chat, cron, and heartbeat-triggered runs
+- `WorkspaceHeartbeatService` periodically resumes running workspace tasks
+- `CronService` triggers scheduled task runs and records the next due time in SQLite
 
 ## Notes
 

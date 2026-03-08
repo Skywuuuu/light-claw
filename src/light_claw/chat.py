@@ -2,15 +2,23 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+import time
 from typing import Dict, Iterable, Optional, Protocol
 
-from .cli_runners import CliRunnerError, CliRunnerRegistry
+from .cli_runners import CliRunnerRegistry
 from .commands import Command, help_text, parse_command
 from .config import AgentSettings, Settings
 from .feishu import FeishuClient
-from .models import FeishuInboundMessage, WorkspaceRecord
+from .models import (
+    SCHEDULE_KIND_INTERVAL,
+    TASK_STATUS_CANCELLED,
+    FeishuInboundMessage,
+    ScheduledTaskRecord,
+    WorkspaceRecord,
+    WorkspaceTaskRecord,
+)
 from .store import StateStore
+from .task_executor import TaskExecutor
 from .workspaces import WorkspaceManager
 
 
@@ -34,14 +42,6 @@ class ChatObserver(Protocol):
         ...
 
 
-@dataclass
-class _ActivityTracker:
-    last_activity_at: float
-
-    def touch(self) -> None:
-        self.last_activity_at = asyncio.get_running_loop().time()
-
-
 class ChatService:
     def __init__(
         self,
@@ -51,6 +51,7 @@ class ChatService:
         workspace_manager: WorkspaceManager,
         cli_registry: CliRunnerRegistry,
         feishu_client: FeishuClient,
+        task_executor: TaskExecutor,
         observer: ChatObserver | None = None,
     ) -> None:
         self.settings = settings
@@ -59,6 +60,7 @@ class ChatService:
         self.workspace_manager = workspace_manager
         self.cli_registry = cli_registry
         self.feishu_client = feishu_client
+        self.task_executor = task_executor
         self.observer = observer
         self._conversation_locks: Dict[str, asyncio.Lock] = {}
 
@@ -248,8 +250,136 @@ class ChatService:
                     str(target.path),
                 ]
             )
+        if command.kind == "task_list":
+            workspace = self._ensure_current_workspace(
+                owner_id=message.owner_id,
+                conversation_id=message.conversation_id,
+            )
+            tasks = self.store.list_workspace_tasks(
+                self.agent.agent_id,
+                message.owner_id,
+                workspace.workspace_id,
+            )
+            return self._render_task_list(tasks)
+        if command.kind == "task_create":
+            if not command.argument:
+                return "Usage: /task create <prompt>"
+            workspace = self._ensure_current_workspace(
+                owner_id=message.owner_id,
+                conversation_id=message.conversation_id,
+            )
+            task = self.store.create_workspace_task(
+                self.agent.agent_id,
+                message.owner_id,
+                workspace.workspace_id,
+                command.argument,
+                notify_conversation_id=message.conversation_id,
+                notify_owner_id=message.owner_id,
+                notify_receive_id=message.reply_target.receive_id,
+                notify_receive_id_type=message.reply_target.receive_id_type,
+                next_run_at=time.time(),
+            )
+            return "\n".join(
+                [
+                    "Task created.",
+                    "{} ({})".format(task.title, task.task_id),
+                    "Workspace: {} ({})".format(workspace.name, workspace.workspace_id),
+                    "Next run: now",
+                ]
+            )
+        if command.kind == "task_cancel":
+            if not command.argument:
+                return "Usage: /task cancel <id|index>"
+            workspace = self._ensure_current_workspace(
+                owner_id=message.owner_id,
+                conversation_id=message.conversation_id,
+            )
+            tasks = self.store.list_workspace_tasks(
+                self.agent.agent_id,
+                message.owner_id,
+                workspace.workspace_id,
+            )
+            task = self._resolve_task_target(tasks, command.argument)
+            if task is None:
+                return "Task not found. Use `/task list` first."
+            self.store.update_workspace_task(
+                self.agent.agent_id,
+                message.owner_id,
+                workspace.workspace_id,
+                task.task_id,
+                status=TASK_STATUS_CANCELLED,
+                next_run_at=None,
+            )
+            return "Task cancelled.\n{} ({})".format(task.title, task.task_id)
+        if command.kind == "cron_list":
+            workspace = self._ensure_current_workspace(
+                owner_id=message.owner_id,
+                conversation_id=message.conversation_id,
+            )
+            schedules = self.store.list_scheduled_tasks(
+                self.agent.agent_id,
+                message.owner_id,
+                workspace.workspace_id,
+            )
+            return self._render_schedule_list(schedules)
+        if command.kind == "cron_every":
+            if not command.argument:
+                return "Usage: /cron every <seconds> <task_id>"
+            workspace = self._ensure_current_workspace(
+                owner_id=message.owner_id,
+                conversation_id=message.conversation_id,
+            )
+            seconds, task_ref = self._parse_cron_every_argument(command.argument)
+            if seconds is None or not task_ref:
+                return "Usage: /cron every <seconds> <task_id>"
+            tasks = self.store.list_workspace_tasks(
+                self.agent.agent_id,
+                message.owner_id,
+                workspace.workspace_id,
+            )
+            task = self._resolve_task_target(tasks, task_ref)
+            if task is None:
+                return "Task not found. Use `/task list` first."
+            schedule = self.store.create_scheduled_task(
+                self.agent.agent_id,
+                message.owner_id,
+                workspace.workspace_id,
+                task.task_id,
+                kind=SCHEDULE_KIND_INTERVAL,
+                interval_seconds=seconds,
+                next_run_at=time.time() + seconds,
+            )
+            return "\n".join(
+                [
+                    "Cron schedule created.",
+                    "{} ({})".format(task.title, task.task_id),
+                    "Schedule: {} every {}s".format(schedule.schedule_id, seconds),
+                ]
+            )
+        if command.kind == "cron_remove":
+            if not command.argument:
+                return "Usage: /cron remove <id|index>"
+            workspace = self._ensure_current_workspace(
+                owner_id=message.owner_id,
+                conversation_id=message.conversation_id,
+            )
+            schedules = self.store.list_scheduled_tasks(
+                self.agent.agent_id,
+                message.owner_id,
+                workspace.workspace_id,
+            )
+            schedule = self._resolve_schedule_target(schedules, command.argument)
+            if schedule is None:
+                return "Cron schedule not found. Use `/cron list` first."
+            self.store.remove_scheduled_task(
+                self.agent.agent_id,
+                message.owner_id,
+                workspace.workspace_id,
+                schedule.schedule_id,
+            )
+            return "Cron schedule removed.\n{}".format(schedule.schedule_id)
         if command.kind == "invalid":
-            return "Unknown workspace command. Use `/help`."
+            return "Unknown command. Use `/help`."
         return None
 
     async def _handle_prompt(self, message: FeishuInboundMessage) -> str:
@@ -257,84 +387,18 @@ class ChatService:
             owner_id=message.owner_id,
             conversation_id=message.conversation_id,
         )
-        state = self.store.get_conversation_state(
-            self.agent.agent_id,
-            message.conversation_id,
-            message.owner_id,
+        result = await self.task_executor.execute_prompt(
+            workspace=workspace,
+            prompt=message.content,
+            conversation_id=message.conversation_id,
+            conversation_owner_id=message.owner_id,
+            reply_target=message.reply_target,
+            announce_start=True,
+            deliver_result=True,
         )
-        await self.feishu_client.send_text(
-            message.reply_target,
-            "Agent {} ({}) is working in {} ({}) with {}...".format(
-                self.agent.name,
-                self.agent.agent_id,
-                workspace.name,
-                workspace.workspace_id,
-                workspace.cli_provider,
-            ),
-        )
-        tracker = _ActivityTracker(asyncio.get_running_loop().time())
-        heartbeat_task = asyncio.create_task(
-            self._send_heartbeat(message, workspace, tracker)
-        )
-        try:
-            runner = self.cli_registry.get_runner(workspace.cli_provider)
-            result = await runner.run(
-                prompt=message.content,
-                workspace_dir=workspace.path,
-                session_id=state.session_id if state else None,
-                on_activity=tracker.touch,
-            )
-        except CliRunnerError as exc:
-            heartbeat_task.cancel()
-            await asyncio.gather(heartbeat_task, return_exceptions=True)
-            await self.feishu_client.send_text(
-                message.reply_target,
-                "CLI run failed:\n{}".format(str(exc)),
-            )
+        if result.status != "succeeded":
             return "cli_failed"
-        except Exception:
-            heartbeat_task.cancel()
-            await asyncio.gather(heartbeat_task, return_exceptions=True)
-            await self.feishu_client.send_text(
-                message.reply_target,
-                "CLI run failed:\nUnexpected internal error.",
-            )
-            return "cli_failed"
-        heartbeat_task.cancel()
-        await asyncio.gather(heartbeat_task, return_exceptions=True)
-        if result.session_id:
-            self.store.set_session_id(
-                self.agent.agent_id,
-                message.conversation_id,
-                message.owner_id,
-                workspace.workspace_id,
-                result.session_id,
-            )
-        await self.feishu_client.send_text(message.reply_target, result.answer)
         return "prompt"
-
-    async def _send_heartbeat(
-        self,
-        message: FeishuInboundMessage,
-        workspace: WorkspaceRecord,
-        tracker: _ActivityTracker,
-    ) -> None:
-        started_at = asyncio.get_running_loop().time()
-        while True:
-            await asyncio.sleep(self.settings.status_heartbeat_seconds)
-            now = asyncio.get_running_loop().time()
-            elapsed = int(now - started_at)
-            idle = int(now - tracker.last_activity_at)
-            await self.feishu_client.send_text(
-                message.reply_target,
-                "Agent {} is still running in {} ({}). Elapsed: {}s. Recent activity: {}s ago.".format(
-                    self.agent.agent_id,
-                    workspace.name,
-                    workspace.workspace_id,
-                    elapsed,
-                    idle,
-                ),
-            )
 
     def _ensure_current_workspace(
         self, owner_id: str, conversation_id: str
@@ -444,6 +508,87 @@ class ChatService:
             lines.append(provider.description)
         lines.append("Use `/cli use <provider>` to switch the current workspace.")
         return "\n".join(lines)
+
+    def _render_task_list(self, tasks: Iterable[WorkspaceTaskRecord]) -> str:
+        items = list(tasks)
+        if not items:
+            return "Tasks:\n(no tasks)"
+        lines = ["Tasks:"]
+        for index, task in enumerate(items, start=1):
+            lines.append(
+                "{}. {} ({}) [{}]".format(
+                    index,
+                    task.title,
+                    task.task_id,
+                    task.status,
+                )
+            )
+            if task.next_run_at is not None:
+                lines.append("Next run at: {}".format(int(task.next_run_at)))
+        return "\n".join(lines)
+
+    def _render_schedule_list(self, schedules: Iterable[ScheduledTaskRecord]) -> str:
+        items = list(schedules)
+        if not items:
+            return "Cron schedules:\n(no schedules)"
+        lines = ["Cron schedules:"]
+        for index, schedule in enumerate(items, start=1):
+            detail = (
+                "every {}s".format(schedule.interval_seconds)
+                if schedule.interval_seconds
+                else schedule.cron_expr or schedule.kind
+            )
+            lines.append(
+                "{}. {} -> task {} [{}]".format(
+                    index,
+                    schedule.schedule_id,
+                    schedule.task_id,
+                    detail,
+                )
+            )
+        return "\n".join(lines)
+
+    @staticmethod
+    def _parse_cron_every_argument(raw: str) -> tuple[int | None, str | None]:
+        parts = raw.split(maxsplit=1)
+        if len(parts) != 2 or not parts[0].isdigit():
+            return None, None
+        seconds = int(parts[0])
+        if seconds <= 0:
+            return None, None
+        return seconds, parts[1].strip() or None
+
+    def _resolve_task_target(
+        self,
+        tasks: Iterable[WorkspaceTaskRecord],
+        target: str,
+    ) -> Optional[WorkspaceTaskRecord]:
+        items = list(tasks)
+        raw = target.strip()
+        if raw.isdigit():
+            index = int(raw)
+            if 1 <= index <= len(items):
+                return items[index - 1]
+        for task in items:
+            if task.task_id == raw:
+                return task
+        return None
+
+    def _resolve_schedule_target(
+        self,
+        schedules: Iterable[ScheduledTaskRecord],
+        target: str,
+    ) -> Optional[ScheduledTaskRecord]:
+        items = list(schedules)
+        raw = target.strip()
+        if raw.isdigit():
+            index = int(raw)
+            if 1 <= index <= len(items):
+                return items[index - 1]
+        for schedule in items:
+            if schedule.schedule_id == raw:
+                return schedule
+        return None
 
     def _is_allowed_user(self, owner_id: str) -> bool:
         allow_from = self.agent.allow_from.strip()

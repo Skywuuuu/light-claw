@@ -154,6 +154,10 @@ class Settings:
     codex_timeout_max_seconds: int
     codex_timeout_per_char_ms: int
     codex_stall_timeout_seconds: int
+    task_heartbeat_enabled: bool
+    task_heartbeat_interval_seconds: int
+    cron_enabled: bool
+    cron_poll_interval_seconds: int
     status_heartbeat_seconds: int
     inbound_message_ttl_seconds: int
     default_cli_provider: str
@@ -205,6 +209,14 @@ class Settings:
             codex_timeout_max_seconds=_read_int("CODEX_TIMEOUT_MAX_SECONDS", 900),
             codex_timeout_per_char_ms=_read_int("CODEX_TIMEOUT_PER_CHAR_MS", 80),
             codex_stall_timeout_seconds=_read_int("CODEX_STALL_TIMEOUT_SECONDS", 120),
+            task_heartbeat_enabled=_read_bool("LIGHT_CLAW_TASK_HEARTBEAT_ENABLED", True),
+            task_heartbeat_interval_seconds=_read_int(
+                "LIGHT_CLAW_TASK_HEARTBEAT_INTERVAL_SECONDS", 30 * 60
+            ),
+            cron_enabled=_read_bool("LIGHT_CLAW_CRON_ENABLED", True),
+            cron_poll_interval_seconds=_read_int(
+                "LIGHT_CLAW_CRON_POLL_INTERVAL_SECONDS", 60
+            ),
             status_heartbeat_seconds=_read_int(
                 "LIGHT_CLAW_STATUS_HEARTBEAT_SECONDS", 30
             ),
@@ -260,6 +272,10 @@ class Settings:
             raise ValueError("LIGHT_CLAW_ARCHIVE_INTERVAL_SECONDS must be positive")
         if self.codex_stall_timeout_seconds <= 0:
             raise ValueError("CODEX_STALL_TIMEOUT_SECONDS must be positive")
+        if self.task_heartbeat_interval_seconds <= 0:
+            raise ValueError("LIGHT_CLAW_TASK_HEARTBEAT_INTERVAL_SECONDS must be positive")
+        if self.cron_poll_interval_seconds <= 0:
+            raise ValueError("LIGHT_CLAW_CRON_POLL_INTERVAL_SECONDS must be positive")
         if self.status_heartbeat_seconds <= 0:
             raise ValueError("LIGHT_CLAW_STATUS_HEARTBEAT_SECONDS must be positive")
         if self.inbound_message_ttl_seconds <= 0:

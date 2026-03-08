@@ -29,6 +29,9 @@ class ServerTest(unittest.TestCase):
                 ready_response = client.get("/readyz")
                 self.assertEqual(ready_response.status_code, 200)
                 self.assertTrue(ready_response.json()["ready"])
+                details = client.get("/healthz/details").json()
+                self.assertIn("heartbeat", details)
+                self.assertIn("cron", details)
 
     def test_url_verification_uses_matching_agent_token(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
