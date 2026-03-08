@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "light-claw"
+version = "0.1.0"
+description = "A Python Codex agent gateway with Feishu messaging and isolated workspaces."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "httpx>=0.27,<1.0",
+  "lark-oapi>=1.5.3",
+  "python-dotenv>=1.0,<2.0",
+  "uvicorn>=0.30,<1.0",
+]
+
+[project.scripts]
+light-claw = "light_claw.server:main"
+codex-claw = "light_claw.server:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
