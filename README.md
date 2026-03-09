@@ -237,6 +237,9 @@ Execution model:
 - `TaskExecutor` reuses the same CLI runner abstraction for chat, cron, and heartbeat-triggered runs
 - `WorkspaceHeartbeatService` periodically resumes running workspace tasks
 - `CronService` triggers scheduled task runs and records the next due time in SQLite
+- background task runs keep lightweight progress notes under `memory/tasks/<task_id>.md`
+- cron-triggered runs automatically review `memory/` and the task progress note before continuing
+- cron schedules stop themselves after repeated no-change results so they do not keep reporting the same completion forever
 
 ## Notes
 
