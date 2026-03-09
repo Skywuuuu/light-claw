@@ -41,6 +41,104 @@
   - `/workspace current`
   - `/reset`
 
+## Architecture
+
+```mermaid
+flowchart TB
+  user[User in Feishu]
+
+  subgraph ingress[Feishu ingress + replies]
+    webhook[Webhook events\nPOST /feishu/events]
+    longconn[Long-connection clients\none per agent]
+    reply_api[Feishu reply API]
+  end
+
+  subgraph runtime[light-claw runtime]
+    app[FastAPI app\nserver.py]
+    health[RuntimeHealth\n/livez /readyz /healthz]
+
+    subgraph agent_runtime[Per-agent runtime]
+      chat[ChatService]
+      commands[Slash commands\n/workspace /cli /task /cron /reset]
+      taskexec[TaskExecutor]
+      registry[CliRunnerRegistry]
+      feishu_client[FeishuClient]
+    end
+
+    subgraph background[Background loops]
+      heartbeat[WorkspaceHeartbeatService]
+      cron[CronService]
+      archive[WorkspaceArchiveService]
+    end
+  end
+
+  subgraph state[Persistent state + local files]
+    store[StateStore on SQLite\nworkspace / conversation_state / conversation_session /\nworkspace_task / task_run / scheduled_task / inbound_message]
+    workspace_dir[Workspace directory\nAGENTS.md / README.md / memory/ / .light-claw/]
+    observations[Session observations + schedule state\n.light-claw/session-observations/\n.light-claw/scheduled-tasks/]
+    progress[Task progress notes\nmemory/tasks/task-id.md]
+    archive_dir[Archive mirror\n../light-claw-data/]
+  end
+
+  subgraph cli[Local CLI execution]
+    provider[Selected provider per workspace]
+    codex[Codex runner\nnew run / resume existing session]
+  end
+
+  user --> webhook
+  user --> longconn
+  webhook --> app
+  longconn --> app
+  app --> health
+  app --> chat
+
+  chat --> commands
+  chat --> taskexec
+  chat --> feishu_client
+  feishu_client --> reply_api
+  reply_api --> user
+
+  commands --> store
+  commands --> workspace_dir
+  commands --> observations
+
+  heartbeat --> store
+  heartbeat --> taskexec
+  cron --> store
+  cron --> taskexec
+  archive --> store
+  archive --> workspace_dir
+  archive --> archive_dir
+
+  taskexec --> store
+  taskexec --> workspace_dir
+  taskexec --> observations
+  taskexec --> progress
+  taskexec --> registry
+  taskexec --> feishu_client
+
+  registry --> provider
+  provider --> codex
+  codex --> workspace_dir
+  codex --> taskexec
+
+  store --> chat
+  store --> taskexec
+  store --> heartbeat
+  store --> cron
+```
+
+How the pieces connect:
+
+- Feishu messages enter through webhook mode or long-connection mode, but both paths end up in the same `ChatService`.
+- `ChatService` either handles a slash command immediately or forwards the prompt to `TaskExecutor`.
+- `TaskExecutor` is the single execution path for foreground chat, heartbeat-resumed tasks, and cron-triggered tasks, so session reuse, observations, memory guidance, and CLI execution all stay in one place.
+- `StateStore` in SQLite is the shared coordination layer for current workspace selection, resumed CLI sessions, background task definitions, run history, schedules, and inbound dedupe.
+- Each workspace directory is both execution context and long-term memory: the CLI runs inside it, `memory/` persists user/project knowledge, and `.light-claw/` stores internal state such as observations and schedule no-change tracking.
+- Background services do not execute work themselves; they only decide when work should run, then call back into the same `TaskExecutor`.
+- The selected CLI provider is stored per workspace; today that means Codex, but the registry keeps the runtime path adapter-based instead of hardcoded.
+- The archive service is deliberately separate from task execution: it mirrors workspace state for backup/debugging, but it does not participate in prompt construction.
+
 ## Project layout
 
 ```text
