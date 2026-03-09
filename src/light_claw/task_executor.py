@@ -33,12 +33,14 @@ _SNAPSHOT_IGNORED_DIRS = {
     ".ruff_cache",
     ".mypy_cache",
     "session-observations",
+    "scheduled-tasks",
 }
 _SNAPSHOT_IGNORED_FILES = {".DS_Store"}
 _OBSERVATION_MAX_FILES = 6
 _OBSERVATION_MAX_FILE_BYTES = 24 * 1024
 _OBSERVATION_MAX_TOTAL_CHARS = 48 * 1024
 _OBSERVATION_MAX_ITEMS = 20
+_TASK_PROGRESS_MAX_CHARS = 2000
 
 
 @dataclass
@@ -103,6 +105,7 @@ class TaskExecutor:
                 conversation_id=conversation_id,
                 conversation_owner_id=conversation_owner_id,
             )
+        prompt = self._inject_memory_guidance(prompt)
         prompt = self._inject_observations(
             workspace=workspace,
             prompt=prompt,
@@ -246,14 +249,27 @@ class TaskExecutor:
             )
 
         reply_target = self._task_reply_target(task)
+        prompt = task.prompt
+        if trigger_source == "cron":
+            prompt = self._inject_cron_task_guidance(
+                workspace=workspace,
+                task=task,
+                prompt=prompt,
+            )
         result = await self.execute_prompt(
             workspace=workspace,
-            prompt=task.prompt,
+            prompt=prompt,
             conversation_id=task.notify_conversation_id,
             conversation_owner_id=task.notify_owner_id,
             reply_target=reply_target,
             announce_start=announce_start,
             deliver_result=deliver_result,
+        )
+        progress_updated = self._record_task_progress(
+            workspace=workspace,
+            task=task,
+            result=result,
+            trigger_source=trigger_source,
         )
         next_run_at = None
         task_status = result.status
@@ -283,6 +299,11 @@ class TaskExecutor:
                     result.error or "Unknown error.",
                 )
             )
+            if progress_updated:
+                observation = "{}\nProgress note: {}".format(
+                    observation,
+                    self._task_progress_relative_path(task),
+                )
             self.record_observation(
                 workspace=workspace,
                 conversation_id=task.notify_conversation_id,
@@ -474,6 +495,104 @@ class TaskExecutor:
                 prompt,
             ]
         )
+
+    @staticmethod
+    def _inject_memory_guidance(prompt: str) -> str:
+        return "\n".join(
+            [
+                "Memory guidance:",
+                "- Read and update relevant markdown files under memory/ when you learn durable user preferences, project facts, open loops, or work philosophy from the user's messages.",
+                "- Keep memory updates concise, specific, and easy to scan.",
+                "",
+                prompt,
+            ]
+        )
+
+    def _inject_cron_task_guidance(
+        self,
+        *,
+        workspace: WorkspaceRecord,
+        task: WorkspaceTaskRecord,
+        prompt: str,
+    ) -> str:
+        progress_path = self._task_progress_relative_path(task)
+        return "\n".join(
+            [
+                "Scheduled task guidance:",
+                "- First read the current task progress in `{}` if it exists.".format(
+                    progress_path
+                ),
+                "- Review relevant files under memory/ before continuing.",
+                "- Do the next useful step for this task instead of repeating completed work.",
+                "- Do any relevant research needed for this task.",
+                "- Follow the project's working style: lightweight, simple, and easy to understand.",
+                "",
+                prompt,
+            ]
+        )
+
+    def _record_task_progress(
+        self,
+        *,
+        workspace: WorkspaceRecord,
+        task: WorkspaceTaskRecord,
+        result: TaskExecutionResult,
+        trigger_source: str,
+    ) -> bool:
+        summary = self._truncate_excerpt(
+            result.answer if result.status == TASK_STATUS_SUCCEEDED else (result.error or ""),
+            max_chars=_TASK_PROGRESS_MAX_CHARS,
+        ).strip()
+        previous_summary = (
+            task.last_result_excerpt
+            if result.status == TASK_STATUS_SUCCEEDED
+            else task.last_error_message
+        ) or ""
+        if not summary or summary == previous_summary.strip():
+            return False
+        path = self._task_progress_path(workspace, task)
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        entry_lines = [
+            "## {} [{}] {}".format(timestamp, trigger_source, result.status),
+            "",
+            summary,
+            "",
+        ]
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.exists():
+                existing = path.read_text(encoding="utf-8").rstrip()
+                body = "{}\n\n{}".format(existing, "\n".join(entry_lines)).strip() + "\n"
+            else:
+                body = "\n".join(
+                    [
+                        "# Task Progress",
+                        "",
+                        "- Task: {} ({})".format(task.title, task.task_id),
+                        "- Prompt:",
+                        "```text",
+                        task.prompt.strip(),
+                        "```",
+                        "",
+                        "\n".join(entry_lines).strip(),
+                        "",
+                    ]
+                )
+            path.write_text(body, encoding="utf-8")
+        except OSError:
+            return False
+        return True
+
+    @staticmethod
+    def _task_progress_relative_path(task: WorkspaceTaskRecord) -> str:
+        return "memory/tasks/{}.md".format(task.task_id)
+
+    def _task_progress_path(
+        self,
+        workspace: WorkspaceRecord,
+        task: WorkspaceTaskRecord,
+    ) -> Path:
+        return workspace.path / self._task_progress_relative_path(task)
 
     def _build_workspace_observation_entry(
         self,

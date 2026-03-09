@@ -280,6 +280,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(resumed_dir.resolve(), workspace_path.resolve())
             self.assertIsNone(resumed_session)
             self.assertIn("Session observations:", injected_prompt)
+            self.assertIn("Memory guidance:", injected_prompt)
             self.assertIn("command_result", injected_prompt)
             self.assertIn("Workspace selected.", injected_prompt)
             self.assertTrue(injected_prompt.rstrip().endswith("Continue"))
@@ -297,7 +298,8 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 deliver_result=False,
             )
 
-            self.assertEqual(runner.calls[-1][0], "Next turn")
+            self.assertIn("Memory guidance:", runner.calls[-1][0])
+            self.assertTrue(runner.calls[-1][0].rstrip().endswith("Next turn"))
             store.close()
 
     async def test_execute_prompt_injects_workspace_change_observation_on_resume(self) -> None:
@@ -335,7 +337,8 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 conversation_owner_id="ou_1",
                 deliver_result=False,
             )
-            self.assertEqual(runner.calls[0][0], "First turn")
+            self.assertIn("Memory guidance:", runner.calls[0][0])
+            self.assertTrue(runner.calls[0][0].rstrip().endswith("First turn"))
 
             (workspace_path / "IMPROVEMENT_RESEARCH.md").write_text(
                 "external observation\nsecond line\n",
@@ -359,10 +362,66 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(resumed_dir.resolve(), workspace_path.resolve())
             self.assertEqual(resumed_session, "sess-1")
             self.assertIn("Session observations:", resumed_prompt)
+            self.assertIn("Memory guidance:", resumed_prompt)
             self.assertIn("workspace_change", resumed_prompt)
             self.assertIn("Added: IMPROVEMENT_RESEARCH.md", resumed_prompt)
             self.assertIn("external observation", resumed_prompt)
             self.assertTrue(resumed_prompt.rstrip().endswith("Continue"))
+            store.close()
+
+    async def test_execute_workspace_task_records_progress_and_cron_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace_path = Path(tmp_dir) / "default"
+            workspace_path.mkdir(parents=True, exist_ok=True)
+            store = StateStore(Path(tmp_dir) / "state.db")
+            store.create_workspace(
+                WorkspaceRecord(
+                    agent_id="agent-a",
+                    owner_id="ou_1",
+                    workspace_id="default",
+                    name="Default",
+                    path=workspace_path,
+                    cli_provider="codex",
+                    created_at=0.0,
+                    updated_at=0.0,
+                )
+            )
+            task = store.create_workspace_task(
+                "agent-a",
+                "ou_1",
+                "default",
+                "Research the next improvement",
+                notify_conversation_id="conv_1",
+                notify_owner_id="ou_1",
+                notify_receive_id="ou_1",
+                notify_receive_id_type="open_id",
+            )
+            runner = _FakeRunner(
+                CliRunResult(session_id="sess-2", answer="Step 1 complete", raw_output="")
+            )
+            executor = TaskExecutor(
+                settings=self._build_settings(tmp_dir),
+                agent=self._build_agent(),
+                store=store,
+                cli_registry=_FakeRegistry(runner),
+                feishu_client=_FakeFeishuClient(),
+            )
+
+            result = await executor.execute_workspace_task(
+                task,
+                trigger_source="cron",
+                announce_start=False,
+                deliver_result=False,
+            )
+
+            self.assertIsNotNone(result)
+            cron_prompt = runner.calls[-1][0]
+            self.assertIn("Scheduled task guidance:", cron_prompt)
+            self.assertIn("memory/tasks/{}.md".format(task.task_id), cron_prompt)
+            self.assertIn("lightweight, simple, and easy to understand", cron_prompt)
+            progress_path = workspace_path / "memory" / "tasks" / "{}.md".format(task.task_id)
+            self.assertTrue(progress_path.exists())
+            self.assertIn("Step 1 complete", progress_path.read_text(encoding="utf-8"))
             store.close()
 
     async def test_chat_command_observation_is_injected_on_next_prompt(self) -> None:
@@ -436,6 +495,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(resumed_dir.resolve(), workspace.path.resolve())
             self.assertIsNone(resumed_session)
             self.assertIn("Session observations:", injected_prompt)
+            self.assertIn("Memory guidance:", injected_prompt)
             self.assertIn("command_result", injected_prompt)
             self.assertIn("CLI provider updated.", injected_prompt)
             self.assertTrue(injected_prompt.rstrip().endswith("Continue"))
