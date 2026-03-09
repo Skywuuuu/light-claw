@@ -2,8 +2,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from light_claw.chat import ChatService
 from light_claw.config import AgentSettings, Settings
-from light_claw.models import CliRunResult, FeishuReplyTarget, WorkspaceRecord
+from light_claw.models import (
+    CliProviderInfo,
+    CliRunResult,
+    FeishuInboundMessage,
+    FeishuReplyTarget,
+    WorkspaceRecord,
+)
 from light_claw.store import StateStore
 from light_claw.task_executor import TaskExecutor
 
@@ -27,6 +34,37 @@ class _FakeRegistry:
     def get_runner(self, provider_id):
         return self.runner
 
+    @staticmethod
+    def default_provider_id(provider_id):
+        return provider_id
+
+    @staticmethod
+    def validate_selectable(provider_id):
+        normalized = provider_id.strip().lower()
+        if normalized == "codex":
+            return True, None
+        return False, "Provider not available."
+
+    @staticmethod
+    def get_provider(provider_id):
+        return CliProviderInfo(
+            provider_id=provider_id,
+            display_name=provider_id.title(),
+            description="test provider",
+            available=True,
+        )
+
+    @staticmethod
+    def list_providers():
+        return [
+            CliProviderInfo(
+                provider_id="codex",
+                display_name="Codex",
+                description="test provider",
+                available=True,
+            )
+        ]
+
 
 class _FakeFeishuClient:
     def __init__(self) -> None:
@@ -34,6 +72,18 @@ class _FakeFeishuClient:
 
     async def send_text(self, target, content):
         self.messages.append((target.receive_id, target.receive_id_type, content))
+
+
+class _FakeWorkspaceManager:
+    @staticmethod
+    def ensure_workspace_layout(
+        workspace,
+        *,
+        agent_name,
+        skills_path,
+        mcp_config_path,
+    ) -> None:
+        return None
 
 
 class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
@@ -177,4 +227,216 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(updated.status, "running")
             self.assertIsNotNone(updated.next_run_at)
             self.assertEqual(updated.last_result_excerpt, "step complete")
+            store.close()
+
+    async def test_execute_prompt_injects_generic_observation_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace_path = Path(tmp_dir) / "default"
+            workspace_path.mkdir(parents=True, exist_ok=True)
+            store = StateStore(Path(tmp_dir) / "state.db")
+            workspace = store.create_workspace(
+                WorkspaceRecord(
+                    agent_id="agent-a",
+                    owner_id="ou_1",
+                    workspace_id="default",
+                    name="Default",
+                    path=workspace_path,
+                    cli_provider="codex",
+                    created_at=0.0,
+                    updated_at=0.0,
+                )
+            )
+            runner = _FakeRunner(
+                CliRunResult(session_id="sess-1", answer="done", raw_output="")
+            )
+            executor = TaskExecutor(
+                settings=self._build_settings(tmp_dir),
+                agent=self._build_agent(),
+                store=store,
+                cli_registry=_FakeRegistry(runner),
+                feishu_client=_FakeFeishuClient(),
+            )
+
+            recorded = executor.record_observation(
+                workspace=workspace,
+                conversation_id="conv_1",
+                conversation_owner_id="ou_1",
+                kind="command_result",
+                text="Workspace selected.\nResearch (research)",
+                context_key="workspace_use:research",
+            )
+
+            self.assertTrue(recorded)
+
+            await executor.execute_prompt(
+                workspace=workspace,
+                prompt="Continue",
+                conversation_id="conv_1",
+                conversation_owner_id="ou_1",
+                deliver_result=False,
+            )
+
+            injected_prompt, resumed_dir, resumed_session = runner.calls[-1]
+            self.assertEqual(resumed_dir.resolve(), workspace_path.resolve())
+            self.assertIsNone(resumed_session)
+            self.assertIn("Session observations:", injected_prompt)
+            self.assertIn("command_result", injected_prompt)
+            self.assertIn("Workspace selected.", injected_prompt)
+            self.assertTrue(injected_prompt.rstrip().endswith("Continue"))
+
+            runner.result = CliRunResult(
+                session_id="sess-1",
+                answer="follow-up done",
+                raw_output="",
+            )
+            await executor.execute_prompt(
+                workspace=workspace,
+                prompt="Next turn",
+                conversation_id="conv_1",
+                conversation_owner_id="ou_1",
+                deliver_result=False,
+            )
+
+            self.assertEqual(runner.calls[-1][0], "Next turn")
+            store.close()
+
+    async def test_execute_prompt_injects_workspace_change_observation_on_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace_path = Path(tmp_dir) / "default"
+            workspace_path.mkdir(parents=True, exist_ok=True)
+            store = StateStore(Path(tmp_dir) / "state.db")
+            workspace = store.create_workspace(
+                WorkspaceRecord(
+                    agent_id="agent-a",
+                    owner_id="ou_1",
+                    workspace_id="default",
+                    name="Default",
+                    path=workspace_path,
+                    cli_provider="codex",
+                    created_at=0.0,
+                    updated_at=0.0,
+                )
+            )
+            runner = _FakeRunner(
+                CliRunResult(session_id="sess-1", answer="done", raw_output="")
+            )
+            executor = TaskExecutor(
+                settings=self._build_settings(tmp_dir),
+                agent=self._build_agent(),
+                store=store,
+                cli_registry=_FakeRegistry(runner),
+                feishu_client=_FakeFeishuClient(),
+            )
+
+            await executor.execute_prompt(
+                workspace=workspace,
+                prompt="First turn",
+                conversation_id="conv_1",
+                conversation_owner_id="ou_1",
+                deliver_result=False,
+            )
+            self.assertEqual(runner.calls[0][0], "First turn")
+
+            (workspace_path / "IMPROVEMENT_RESEARCH.md").write_text(
+                "external observation\nsecond line\n",
+                encoding="utf-8",
+            )
+            runner.result = CliRunResult(
+                session_id="sess-1",
+                answer="follow-up done",
+                raw_output="",
+            )
+
+            await executor.execute_prompt(
+                workspace=workspace,
+                prompt="Continue",
+                conversation_id="conv_1",
+                conversation_owner_id="ou_1",
+                deliver_result=False,
+            )
+
+            resumed_prompt, resumed_dir, resumed_session = runner.calls[-1]
+            self.assertEqual(resumed_dir.resolve(), workspace_path.resolve())
+            self.assertEqual(resumed_session, "sess-1")
+            self.assertIn("Session observations:", resumed_prompt)
+            self.assertIn("workspace_change", resumed_prompt)
+            self.assertIn("Added: IMPROVEMENT_RESEARCH.md", resumed_prompt)
+            self.assertIn("external observation", resumed_prompt)
+            self.assertTrue(resumed_prompt.rstrip().endswith("Continue"))
+            store.close()
+
+    async def test_chat_command_observation_is_injected_on_next_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace_path = Path(tmp_dir) / "default"
+            workspace_path.mkdir(parents=True, exist_ok=True)
+            store = StateStore(Path(tmp_dir) / "state.db")
+            workspace = store.create_workspace(
+                WorkspaceRecord(
+                    agent_id="agent-a",
+                    owner_id="ou_1",
+                    workspace_id="default",
+                    name="Default",
+                    path=workspace_path,
+                    cli_provider="codex",
+                    created_at=0.0,
+                    updated_at=0.0,
+                )
+            )
+            runner = _FakeRunner(
+                CliRunResult(session_id="sess-1", answer="done", raw_output="")
+            )
+            registry = _FakeRegistry(runner)
+            feishu = _FakeFeishuClient()
+            executor = TaskExecutor(
+                settings=self._build_settings(tmp_dir),
+                agent=self._build_agent(),
+                store=store,
+                cli_registry=registry,
+                feishu_client=feishu,
+            )
+            chat = ChatService(
+                settings=self._build_settings(tmp_dir),
+                agent=self._build_agent(),
+                store=store,
+                workspace_manager=_FakeWorkspaceManager(),
+                cli_registry=registry,
+                feishu_client=feishu,
+                task_executor=executor,
+            )
+
+            await chat.handle_message(
+                FeishuInboundMessage(
+                    agent_id="agent-a",
+                    bot_app_id="bot-app",
+                    owner_id="ou_1",
+                    conversation_id="conv_1",
+                    message_id="msg-1",
+                    message_type="text",
+                    content="/cli use codex",
+                    reply_target=FeishuReplyTarget("ou_1", "open_id"),
+                )
+            )
+
+            self.assertIn("CLI provider updated.", feishu.messages[-1][2])
+
+            await chat.handle_message(
+                FeishuInboundMessage(
+                    agent_id="agent-a",
+                    bot_app_id="bot-app",
+                    owner_id="ou_1",
+                    conversation_id="conv_1",
+                    message_id="msg-2",
+                    message_type="text",
+                    content="Continue",
+                    reply_target=FeishuReplyTarget("ou_1", "open_id"),
+                )
+            )
+
+            injected_prompt, resumed_dir, resumed_session = runner.calls[-1]
+            self.assertEqual(resumed_dir.resolve(), workspace.path.resolve())
+            self.assertIsNone(resumed_session)
+            self.assertIn("Session observations:", injected_prompt)
+            self.assertIn("command_result", injected_prompt)
+            self.assertIn("CLI provider updated.", injected_prompt)
+            self.assertTrue(injected_prompt.rstrip().endswith("Continue"))
             store.close()
