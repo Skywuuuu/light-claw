@@ -116,11 +116,21 @@ class ChatService:
         if command.kind == "help":
             return help_text()
         if command.kind == "reset":
+            workspace = self._get_current_workspace(
+                owner_id=message.owner_id,
+                conversation_id=message.conversation_id,
+            )
             self.store.clear_session(
                 self.agent.agent_id,
                 message.conversation_id,
                 message.owner_id,
             )
+            if workspace is not None:
+                self.task_executor.clear_observations(
+                    workspace=workspace,
+                    conversation_id=message.conversation_id,
+                    conversation_owner_id=message.owner_id,
+                )
             return "Current workspace session cleared. The next message will start a new session."
         if command.kind == "cli_list":
             workspace = self._ensure_current_workspace(
@@ -163,12 +173,20 @@ class ChatService:
             if updated is None:
                 return "Failed to update workspace CLI provider."
             self._ensure_workspace_layout(updated)
-            return "\n".join(
+            response = "\n".join(
                 [
                     "CLI provider updated.",
                     "{} now uses `{}`.".format(updated.name, updated.cli_provider),
                 ]
             )
+            self._record_command_observation(
+                workspace=updated,
+                message=message,
+                command_kind=command.kind,
+                response=response,
+                context_key=updated.cli_provider,
+            )
+            return response
         if command.kind == "workspace_list":
             workspace = self._ensure_current_workspace(
                 owner_id=message.owner_id,
@@ -220,7 +238,7 @@ class ChatService:
                 message.owner_id,
                 record.workspace_id,
             )
-            return "\n".join(
+            response = "\n".join(
                 [
                     "Workspace created and selected.",
                     "Agent: {} ({})".format(self.agent.name, self.agent.agent_id),
@@ -229,6 +247,14 @@ class ChatService:
                     str(record.path),
                 ]
             )
+            self._record_command_observation(
+                workspace=record,
+                message=message,
+                command_kind=command.kind,
+                response=response,
+                context_key=record.workspace_id,
+            )
+            return response
         if command.kind == "workspace_use":
             if not command.argument:
                 return "Usage: /workspace use <id|index>"
@@ -242,7 +268,7 @@ class ChatService:
                 message.owner_id,
                 target.workspace_id,
             )
-            return "\n".join(
+            response = "\n".join(
                 [
                     "Workspace selected.",
                     "Agent: {} ({})".format(self.agent.name, self.agent.agent_id),
@@ -251,6 +277,14 @@ class ChatService:
                     str(target.path),
                 ]
             )
+            self._record_command_observation(
+                workspace=target,
+                message=message,
+                command_kind=command.kind,
+                response=response,
+                context_key=target.workspace_id,
+            )
+            return response
         if command.kind == "task_list":
             workspace = self._ensure_current_workspace(
                 owner_id=message.owner_id,
@@ -302,7 +336,7 @@ class ChatService:
                 notify_receive_id_type=message.reply_target.receive_id_type,
                 next_run_at=time.time(),
             )
-            return "\n".join(
+            response = "\n".join(
                 [
                     "Task created.",
                     "{} ({})".format(task.title, task.task_id),
@@ -310,6 +344,14 @@ class ChatService:
                     "Next run: now",
                 ]
             )
+            self._record_command_observation(
+                workspace=workspace,
+                message=message,
+                command_kind=command.kind,
+                response=response,
+                context_key=task.task_id,
+            )
+            return response
         if command.kind == "task_cancel":
             if not command.argument:
                 return "Usage: /task cancel <id|index>"
@@ -333,7 +375,15 @@ class ChatService:
                 status=TASK_STATUS_CANCELLED,
                 next_run_at=None,
             )
-            return "Task cancelled.\n{} ({})".format(task.title, task.task_id)
+            response = "Task cancelled.\n{} ({})".format(task.title, task.task_id)
+            self._record_command_observation(
+                workspace=workspace,
+                message=message,
+                command_kind=command.kind,
+                response=response,
+                context_key=task.task_id,
+            )
+            return response
         if command.kind == "cron_list":
             workspace = self._ensure_current_workspace(
                 owner_id=message.owner_id,
@@ -372,13 +422,21 @@ class ChatService:
                 interval_seconds=seconds,
                 next_run_at=time.time() + seconds,
             )
-            return "\n".join(
+            response = "\n".join(
                 [
                     "Cron schedule created.",
                     "{} ({})".format(task.title, task.task_id),
                     "Schedule: {} every {}s".format(schedule.schedule_id, seconds),
                 ]
             )
+            self._record_command_observation(
+                workspace=workspace,
+                message=message,
+                command_kind=command.kind,
+                response=response,
+                context_key=schedule.schedule_id,
+            )
+            return response
         if command.kind == "cron_remove":
             if not command.argument:
                 return "Usage: /cron remove <id|index>"
@@ -400,7 +458,15 @@ class ChatService:
                 workspace.workspace_id,
                 schedule.schedule_id,
             )
-            return "Cron schedule removed.\n{}".format(schedule.schedule_id)
+            response = "Cron schedule removed.\n{}".format(schedule.schedule_id)
+            self._record_command_observation(
+                workspace=workspace,
+                message=message,
+                command_kind=command.kind,
+                response=response,
+                context_key=schedule.schedule_id,
+            )
+            return response
         if command.kind == "invalid":
             return "Unknown command. Use `/help`."
         return None
@@ -480,6 +546,43 @@ class ChatService:
             agent_name=self.agent.name,
             skills_path=self.agent.skills_path,
             mcp_config_path=self.agent.mcp_config_path,
+        )
+
+    def _get_current_workspace(
+        self, *, owner_id: str, conversation_id: str
+    ) -> WorkspaceRecord | None:
+        state = self.store.get_conversation_state(
+            self.agent.agent_id,
+            conversation_id,
+            owner_id,
+        )
+        if state is None or not state.workspace_id:
+            return None
+        return self.store.get_workspace(
+            self.agent.agent_id,
+            owner_id,
+            state.workspace_id,
+        )
+
+    def _record_command_observation(
+        self,
+        *,
+        workspace: WorkspaceRecord,
+        message: FeishuInboundMessage,
+        command_kind: str,
+        response: str,
+        context_key: str | None = None,
+    ) -> None:
+        normalized_context = command_kind
+        if context_key:
+            normalized_context = "{}:{}".format(command_kind, context_key)
+        self.task_executor.record_observation(
+            workspace=workspace,
+            conversation_id=message.conversation_id,
+            conversation_owner_id=message.owner_id,
+            kind="command_result",
+            text=response,
+            context_key=normalized_context,
         )
 
     def _resolve_workspace_target(

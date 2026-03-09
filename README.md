@@ -200,7 +200,7 @@ Each workspace contains:
 
 The selected CLI runs inside the selected workspace, so the workspace instructions, memory files, and agent-local tool profile files are part of its local context.
 
-When a conversation resumes an existing CLI session, `light-claw` also compares the current workspace against the last snapshot it recorded for that conversation. Any external file additions, edits, or deletions are prepended to the next prompt as a workspace observation so the resumed session can see changes that happened outside the CLI run itself.
+`light-claw` also keeps a small per-session observation queue in the workspace. The next prompt for that conversation prepends any queued observations, such as workspace file changes, mutating command results, background task updates, and previous runtime failures. Workspace file changes are still computed from the last recorded snapshot, but they now flow through the same observation path as the other session events.
 
 Each configured agent maps to:
 
