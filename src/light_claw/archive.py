@@ -95,11 +95,7 @@ class WorkspaceArchiveService:
 
         for workspace in self.store.list_all_workspaces():
             source_dir = workspace.path.resolve()
-            relative_dir = workspace_relative_dir(
-                workspace.agent_id,
-                workspace.owner_id,
-                workspace.workspace_id,
-            )
+            relative_dir = workspace_relative_dir(workspace.agent_id)
             target_dir = archive_workspaces_dir / relative_dir
             seen_paths.add(relative_dir)
 

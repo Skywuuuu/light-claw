@@ -230,7 +230,7 @@ class TaskExecutor:
         )
         if run is None:
             return None
-        workspace = self.store.get_workspace(task.agent_id, task.owner_id, task.workspace_id)
+        workspace = self.store.get_agent_workspace(task.agent_id)
         if workspace is None:
             self.store.complete_task_run(
                 task.agent_id,

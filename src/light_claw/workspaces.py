@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 from .models import WorkspaceRecord
+
+DEFAULT_WORKSPACE_ID = "default"
+DEFAULT_WORKSPACE_OWNER = "__agent__"
 
 
 def _slugify(value: str, fallback: str) -> str:
@@ -13,18 +16,14 @@ def _slugify(value: str, fallback: str) -> str:
     return normalized or fallback
 
 
-def _owner_dir_name(owner_id: str) -> str:
-    return _slugify(owner_id, "owner")
-
-
 def _agent_dir_name(agent_id: str) -> str:
     return _slugify(agent_id, "agent")
 
 
-def workspace_relative_dir(agent_id: str, owner_id: str, workspace_id: str) -> Path:
+def workspace_relative_dir(agent_id: str) -> Path:
     """Return the relative directory used for a workspace on disk."""
 
-    return Path(_agent_dir_name(agent_id)) / _owner_dir_name(owner_id) / workspace_id
+    return Path(_agent_dir_name(agent_id))
 
 
 def _workspace_files(
@@ -122,28 +121,16 @@ class WorkspaceManager:
     def create_workspace(
         self,
         agent_id: str,
-        owner_id: str,
         name: str,
-        existing_ids: Iterable[str],
         cli_provider: str,
         agent_name: str,
         skills_path: Optional[Path] = None,
         mcp_config_path: Optional[Path] = None,
     ) -> WorkspaceRecord:
         workspace_name = name.strip() or "Workspace"
-        existing = set(existing_ids)
-        base_id = _slugify(workspace_name, "workspace")
-        workspace_id = base_id
-        index = 2
-        while workspace_id in existing:
-            workspace_id = f"{base_id}-{index}"
-            index += 1
+        workspace_id = DEFAULT_WORKSPACE_ID
 
-        workspace_dir = self.root_dir / workspace_relative_dir(
-            agent_id,
-            owner_id,
-            workspace_id,
-        )
+        workspace_dir = self.root_dir / workspace_relative_dir(agent_id)
         workspace_dir.mkdir(parents=True, exist_ok=True)
         self._bootstrap_workspace(
             workspace_dir,
@@ -157,7 +144,7 @@ class WorkspaceManager:
 
         return WorkspaceRecord(
             agent_id=agent_id,
-            owner_id=owner_id,
+            owner_id=DEFAULT_WORKSPACE_OWNER,
             workspace_id=workspace_id,
             name=workspace_name,
             path=workspace_dir,

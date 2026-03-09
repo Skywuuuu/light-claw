@@ -7,7 +7,7 @@ from light_claw.store import StateStore
 
 
 class StoreTest(unittest.TestCase):
-    def test_workspace_and_conversation_state(self) -> None:
+    def test_agent_workspace_and_sessions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             store = StateStore(Path(tmp_dir) / "state.db")
             workspace = store.create_workspace(
@@ -22,12 +22,6 @@ class StoreTest(unittest.TestCase):
                     updated_at=0.0,
                 )
             )
-            store.set_current_workspace(
-                "agent-a",
-                "conv_1",
-                "ou_1",
-                workspace.workspace_id,
-            )
             store.set_session_id(
                 "agent-a",
                 "conv_1",
@@ -36,26 +30,29 @@ class StoreTest(unittest.TestCase):
                 "session_1",
             )
 
-            current = store.get_conversation_state("agent-a", "conv_1", "ou_1")
+            current = store.get_agent_workspace("agent-a")
             self.assertIsNotNone(current)
             self.assertEqual(current.agent_id, "agent-a")
             self.assertEqual(current.workspace_id, "default")
-            self.assertEqual(current.session_id, "session_1")
-
-            store.set_current_workspace(
-                "agent-a",
-                "conv_1",
-                "ou_1",
-                workspace.workspace_id,
+            self.assertEqual(
+                store.get_workspace_session_id(
+                    "agent-a",
+                    "conv_1",
+                    "ou_1",
+                    workspace.workspace_id,
+                ),
+                "session_1",
             )
-            resumed = store.get_conversation_state("agent-a", "conv_1", "ou_1")
-            self.assertIsNotNone(resumed)
-            self.assertEqual(resumed.session_id, "session_1")
 
             store.clear_session("agent-a", "conv_1", "ou_1")
-            cleared = store.get_conversation_state("agent-a", "conv_1", "ou_1")
-            self.assertIsNotNone(cleared)
-            self.assertIsNone(cleared.session_id)
+            self.assertIsNone(
+                store.get_workspace_session_id(
+                    "agent-a",
+                    "conv_1",
+                    "ou_1",
+                    workspace.workspace_id,
+                )
+            )
             store.close()
 
     def test_updates_workspace_cli_provider(self) -> None:
@@ -115,10 +112,14 @@ class StoreTest(unittest.TestCase):
                     f"session-{agent_id}",
                 )
 
-            agent_a = store.get_conversation_state("agent-a", "conv_1", "ou_1")
-            agent_b = store.get_conversation_state("agent-b", "conv_1", "ou_1")
-            self.assertEqual(agent_a.session_id, "session-agent-a")
-            self.assertEqual(agent_b.session_id, "session-agent-b")
+            self.assertEqual(
+                store.get_workspace_session_id("agent-a", "conv_1", "ou_1", "default"),
+                "session-agent-a",
+            )
+            self.assertEqual(
+                store.get_workspace_session_id("agent-b", "conv_1", "ou_1", "default"),
+                "session-agent-b",
+            )
             store.close()
 
     def test_workspace_tasks_and_runs_round_trip(self) -> None:

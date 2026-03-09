@@ -11,9 +11,7 @@ class WorkspaceManagerTest(unittest.TestCase):
             manager = WorkspaceManager(Path(tmp_dir))
             workspace = manager.create_workspace(
                 agent_id="writer",
-                owner_id="ou_1",
                 name="Platform Agent",
-                existing_ids=[],
                 cli_provider="codex",
                 agent_name="Writer",
             )
@@ -25,30 +23,21 @@ class WorkspaceManagerTest(unittest.TestCase):
             self.assertTrue((workspace.path / "memory" / "identity.md").exists())
             self.assertTrue((workspace.path / "memory" / "daily" / "README.md").exists())
             self.assertEqual(
-                workspace_relative_dir("writer", "ou_1", "platform-agent"),
-                Path("writer") / "ou_1" / "platform-agent",
+                workspace_relative_dir("writer"),
+                Path("writer"),
             )
+            self.assertEqual(workspace.workspace_id, "default")
 
-    def test_workspace_ids_are_unique(self) -> None:
+    def test_workspace_path_is_agent_scoped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             manager = WorkspaceManager(Path(tmp_dir))
-            first = manager.create_workspace(
+            workspace = manager.create_workspace(
                 "writer",
-                "ou_1",
                 "Agent",
-                existing_ids=[],
                 cli_provider="codex",
                 agent_name="Writer",
             )
-            second = manager.create_workspace(
-                "writer",
-                "ou_1",
-                "Agent",
-                existing_ids=[first.workspace_id],
-                cli_provider="codex",
-                agent_name="Writer",
-            )
-            self.assertNotEqual(first.workspace_id, second.workspace_id)
+            self.assertEqual(workspace.path, Path(tmp_dir).resolve() / "writer")
 
 
 if __name__ == "__main__":

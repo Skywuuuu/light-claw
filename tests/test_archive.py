@@ -22,7 +22,7 @@ class WorkspaceArchiveServiceTest(unittest.IsolatedAsyncioTestCase):
         self.store.close()
 
     def _create_workspace(self, agent_id: str, owner_id: str, workspace_id: str) -> Path:
-        workspace_dir = self.base_dir / "source" / agent_id / owner_id / workspace_id
+        workspace_dir = self.base_dir / "source" / agent_id
         workspace_dir.mkdir(parents=True, exist_ok=True)
         (workspace_dir / "AGENTS.md").write_text("# Agent\n", encoding="utf-8")
         (workspace_dir / "memory").mkdir()
@@ -60,8 +60,6 @@ class WorkspaceArchiveServiceTest(unittest.IsolatedAsyncioTestCase):
                 archive_root
                 / "workspaces"
                 / "writer"
-                / "ou_1"
-                / "default"
                 / "AGENTS.md"
             ).exists()
         )
@@ -70,8 +68,6 @@ class WorkspaceArchiveServiceTest(unittest.IsolatedAsyncioTestCase):
                 archive_root
                 / "workspaces"
                 / "writer"
-                / "ou_1"
-                / "default"
                 / "memory"
                 / "identity.md"
             ).exists()
@@ -80,7 +76,7 @@ class WorkspaceArchiveServiceTest(unittest.IsolatedAsyncioTestCase):
     async def test_run_once_prunes_removed_archived_workspaces(self) -> None:
         self._create_workspace("writer", "ou_1", "default")
         archive_root = self.base_dir / "archive"
-        stale_dir = archive_root / "workspaces" / "writer" / "ou_1" / "stale"
+        stale_dir = archive_root / "workspaces" / "writer" / "stale"
         stale_dir.mkdir(parents=True, exist_ok=True)
         (stale_dir / "README.md").write_text("stale\n", encoding="utf-8")
         service = WorkspaceArchiveService(
@@ -110,8 +106,6 @@ class WorkspaceArchiveServiceTest(unittest.IsolatedAsyncioTestCase):
                 archive_root
                 / "workspaces"
                 / "writer"
-                / "ou_1"
-                / "default"
                 / "AGENTS.md"
             ).exists()
         )

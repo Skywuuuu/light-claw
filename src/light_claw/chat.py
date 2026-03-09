@@ -116,10 +116,7 @@ class ChatService:
         if command.kind == "help":
             return help_text()
         if command.kind == "reset":
-            workspace = self._get_current_workspace(
-                owner_id=message.owner_id,
-                conversation_id=message.conversation_id,
-            )
+            workspace = self._get_workspace()
             self.store.clear_session(
                 self.agent.agent_id,
                 message.conversation_id,
@@ -133,16 +130,10 @@ class ChatService:
                 )
             return "Current workspace session cleared. The next message will start a new session."
         if command.kind == "cli_list":
-            workspace = self._ensure_current_workspace(
-                owner_id=message.owner_id,
-                conversation_id=message.conversation_id,
-            )
+            workspace = self._ensure_workspace()
             return self._render_cli_list(workspace.cli_provider)
         if command.kind == "cli_current":
-            workspace = self._ensure_current_workspace(
-                owner_id=message.owner_id,
-                conversation_id=message.conversation_id,
-            )
+            workspace = self._ensure_workspace()
             provider = self.cli_registry.get_provider(workspace.cli_provider)
             return "\n".join(
                 [
@@ -157,16 +148,13 @@ class ChatService:
         if command.kind == "cli_use":
             if not command.argument:
                 return "Usage: /cli use <provider>"
-            workspace = self._ensure_current_workspace(
-                owner_id=message.owner_id,
-                conversation_id=message.conversation_id,
-            )
+            workspace = self._ensure_workspace()
             ok, reason = self.cli_registry.validate_selectable(command.argument)
             if not ok:
                 return reason
             updated = self.store.set_workspace_cli_provider(
-                self.agent.agent_id,
-                message.owner_id,
+                workspace.agent_id,
+                workspace.owner_id,
                 workspace.workspace_id,
                 command.argument.strip().lower(),
             )
@@ -187,109 +175,8 @@ class ChatService:
                 context_key=updated.cli_provider,
             )
             return response
-        if command.kind == "workspace_list":
-            workspace = self._ensure_current_workspace(
-                owner_id=message.owner_id,
-                conversation_id=message.conversation_id,
-            )
-            workspaces = self.store.list_workspaces(self.agent.agent_id, message.owner_id)
-            return self._render_workspace_list(workspaces, workspace.workspace_id)
-        if command.kind == "workspace_current":
-            workspace = self._ensure_current_workspace(
-                owner_id=message.owner_id,
-                conversation_id=message.conversation_id,
-            )
-            state = self.store.get_conversation_state(
-                self.agent.agent_id,
-                message.conversation_id,
-                message.owner_id,
-            )
-            return "\n".join(
-                [
-                    "Current workspace:",
-                    "Agent: {} ({})".format(self.agent.name, self.agent.agent_id),
-                    "{} ({})".format(workspace.name, workspace.workspace_id),
-                    "CLI provider: {}".format(workspace.cli_provider),
-                    str(workspace.path),
-                    "Current session: {}".format(state.session_id or "(none)"),
-                ]
-            )
-        if command.kind == "workspace_create":
-            if not command.argument:
-                return "Usage: /workspace create <name>"
-            workspaces = self.store.list_workspaces(self.agent.agent_id, message.owner_id)
-            record = self.workspace_manager.create_workspace(
-                agent_id=self.agent.agent_id,
-                owner_id=message.owner_id,
-                name=command.argument,
-                existing_ids=[workspace.workspace_id for workspace in workspaces],
-                cli_provider=self.cli_registry.default_provider_id(
-                    self.agent.default_cli_provider
-                ),
-                agent_name=self.agent.name,
-                skills_path=self.agent.skills_path,
-                mcp_config_path=self.agent.mcp_config_path,
-            )
-            record = self.store.create_workspace(record)
-            self._ensure_workspace_layout(record)
-            self.store.set_current_workspace(
-                self.agent.agent_id,
-                message.conversation_id,
-                message.owner_id,
-                record.workspace_id,
-            )
-            response = "\n".join(
-                [
-                    "Workspace created and selected.",
-                    "Agent: {} ({})".format(self.agent.name, self.agent.agent_id),
-                    "{} ({})".format(record.name, record.workspace_id),
-                    "CLI provider: {}".format(record.cli_provider),
-                    str(record.path),
-                ]
-            )
-            self._record_command_observation(
-                workspace=record,
-                message=message,
-                command_kind=command.kind,
-                response=response,
-                context_key=record.workspace_id,
-            )
-            return response
-        if command.kind == "workspace_use":
-            if not command.argument:
-                return "Usage: /workspace use <id|index>"
-            workspaces = self.store.list_workspaces(self.agent.agent_id, message.owner_id)
-            target = self._resolve_workspace_target(workspaces, command.argument)
-            if not target:
-                return "Workspace not found. Use `/workspace list` first."
-            self.store.set_current_workspace(
-                self.agent.agent_id,
-                message.conversation_id,
-                message.owner_id,
-                target.workspace_id,
-            )
-            response = "\n".join(
-                [
-                    "Workspace selected.",
-                    "Agent: {} ({})".format(self.agent.name, self.agent.agent_id),
-                    "{} ({})".format(target.name, target.workspace_id),
-                    "CLI provider: {}".format(target.cli_provider),
-                    str(target.path),
-                ]
-            )
-            self._record_command_observation(
-                workspace=target,
-                message=message,
-                command_kind=command.kind,
-                response=response,
-                context_key=target.workspace_id,
-            )
-            return response
         if command.kind == "task_list":
-            workspace = self._ensure_current_workspace(
-                owner_id=message.owner_id,
-                conversation_id=message.conversation_id,
-            )
+            workspace = self._ensure_workspace()
             tasks = self.store.list_workspace_tasks(
                 self.agent.agent_id,
                 message.owner_id,
@@ -299,10 +186,7 @@ class ChatService:
         if command.kind == "task_status":
             if not command.argument:
                 return "Usage: /task status <id|index>"
-            workspace = self._ensure_current_workspace(
-                owner_id=message.owner_id,
-                conversation_id=message.conversation_id,
-            )
+            workspace = self._ensure_workspace()
             tasks = self.store.list_workspace_tasks(
                 self.agent.agent_id,
                 message.owner_id,
@@ -321,10 +205,7 @@ class ChatService:
         if command.kind == "task_create":
             if not command.argument:
                 return "Usage: /task create <prompt>"
-            workspace = self._ensure_current_workspace(
-                owner_id=message.owner_id,
-                conversation_id=message.conversation_id,
-            )
+            workspace = self._ensure_workspace()
             task = self.store.create_workspace_task(
                 self.agent.agent_id,
                 message.owner_id,
@@ -355,10 +236,7 @@ class ChatService:
         if command.kind == "task_cancel":
             if not command.argument:
                 return "Usage: /task cancel <id|index>"
-            workspace = self._ensure_current_workspace(
-                owner_id=message.owner_id,
-                conversation_id=message.conversation_id,
-            )
+            workspace = self._ensure_workspace()
             tasks = self.store.list_workspace_tasks(
                 self.agent.agent_id,
                 message.owner_id,
@@ -385,10 +263,7 @@ class ChatService:
             )
             return response
         if command.kind == "cron_list":
-            workspace = self._ensure_current_workspace(
-                owner_id=message.owner_id,
-                conversation_id=message.conversation_id,
-            )
+            workspace = self._ensure_workspace()
             schedules = self.store.list_scheduled_tasks(
                 self.agent.agent_id,
                 message.owner_id,
@@ -398,10 +273,7 @@ class ChatService:
         if command.kind == "cron_every":
             if not command.argument:
                 return "Usage: /cron every <seconds> <task_id>"
-            workspace = self._ensure_current_workspace(
-                owner_id=message.owner_id,
-                conversation_id=message.conversation_id,
-            )
+            workspace = self._ensure_workspace()
             seconds, task_ref = self._parse_cron_every_argument(command.argument)
             if seconds is None or not task_ref:
                 return "Usage: /cron every <seconds> <task_id>"
@@ -440,10 +312,7 @@ class ChatService:
         if command.kind == "cron_remove":
             if not command.argument:
                 return "Usage: /cron remove <id|index>"
-            workspace = self._ensure_current_workspace(
-                owner_id=message.owner_id,
-                conversation_id=message.conversation_id,
-            )
+            workspace = self._ensure_workspace()
             schedules = self.store.list_scheduled_tasks(
                 self.agent.agent_id,
                 message.owner_id,
@@ -472,10 +341,7 @@ class ChatService:
         return None
 
     async def _handle_prompt(self, message: FeishuInboundMessage) -> str:
-        workspace = self._ensure_current_workspace(
-            owner_id=message.owner_id,
-            conversation_id=message.conversation_id,
-        )
+        workspace = self._ensure_workspace()
         result = await self.task_executor.execute_prompt(
             workspace=workspace,
             prompt=message.content,
@@ -489,40 +355,14 @@ class ChatService:
             return "cli_failed"
         return "prompt"
 
-    def _ensure_current_workspace(
-        self, owner_id: str, conversation_id: str
-    ) -> WorkspaceRecord:
-        state = self.store.get_conversation_state(
-            self.agent.agent_id,
-            conversation_id,
-            owner_id,
-        )
-        if state and state.workspace_id:
-            workspace = self.store.get_workspace(
-                self.agent.agent_id,
-                owner_id,
-                state.workspace_id,
-            )
-            if workspace:
-                self._ensure_workspace_layout(workspace)
-                return workspace
-
-        workspaces = self.store.list_workspaces(self.agent.agent_id, owner_id)
-        if workspaces:
-            self.store.set_current_workspace(
-                self.agent.agent_id,
-                conversation_id,
-                owner_id,
-                workspaces[0].workspace_id,
-            )
-            self._ensure_workspace_layout(workspaces[0])
-            return workspaces[0]
-
+    def _ensure_workspace(self) -> WorkspaceRecord:
+        workspace = self.store.get_agent_workspace(self.agent.agent_id)
+        if workspace is not None:
+            self._ensure_workspace_layout(workspace)
+            return workspace
         created = self.workspace_manager.create_workspace(
             agent_id=self.agent.agent_id,
-            owner_id=owner_id,
             name=self.agent.default_workspace_name,
-            existing_ids=[],
             cli_provider=self.cli_registry.default_provider_id(
                 self.agent.default_cli_provider
             ),
@@ -532,12 +372,6 @@ class ChatService:
         )
         created = self.store.create_workspace(created)
         self._ensure_workspace_layout(created)
-        self.store.set_current_workspace(
-            self.agent.agent_id,
-            conversation_id,
-            owner_id,
-            created.workspace_id,
-        )
         return created
 
     def _ensure_workspace_layout(self, workspace: WorkspaceRecord) -> None:
@@ -548,21 +382,8 @@ class ChatService:
             mcp_config_path=self.agent.mcp_config_path,
         )
 
-    def _get_current_workspace(
-        self, *, owner_id: str, conversation_id: str
-    ) -> WorkspaceRecord | None:
-        state = self.store.get_conversation_state(
-            self.agent.agent_id,
-            conversation_id,
-            owner_id,
-        )
-        if state is None or not state.workspace_id:
-            return None
-        return self.store.get_workspace(
-            self.agent.agent_id,
-            owner_id,
-            state.workspace_id,
-        )
+    def _get_workspace(self) -> WorkspaceRecord | None:
+        return self.store.get_agent_workspace(self.agent.agent_id)
 
     def _record_command_observation(
         self,
@@ -585,39 +406,6 @@ class ChatService:
             context_key=normalized_context,
         )
 
-    def _resolve_workspace_target(
-        self, workspaces: Iterable[WorkspaceRecord], target: str
-    ) -> Optional[WorkspaceRecord]:
-        items = list(workspaces)
-        raw = target.strip()
-        if raw.isdigit():
-            index = int(raw)
-            if 1 <= index <= len(items):
-                return items[index - 1]
-        for workspace in items:
-            if workspace.workspace_id == raw:
-                return workspace
-        return None
-
-    def _render_workspace_list(
-        self, workspaces: Iterable[WorkspaceRecord], current_workspace_id: str
-    ) -> str:
-        lines = ["Workspaces:"]
-        for index, workspace in enumerate(workspaces, start=1):
-            marker = "->" if workspace.workspace_id == current_workspace_id else "  "
-            lines.append(
-                "{} {}. {} ({}) [{}]".format(
-                    marker,
-                    index,
-                    workspace.name,
-                    workspace.workspace_id,
-                    workspace.cli_provider,
-                )
-            )
-            lines.append(str(workspace.path))
-        lines.append("Use `/workspace use <id|index>` to switch.")
-        return "\n".join(lines)
-
     def _render_cli_list(self, current_provider_id: str) -> str:
         lines = ["CLI providers:"]
         for provider in self.cli_registry.list_providers():
@@ -632,7 +420,7 @@ class ChatService:
                 )
             )
             lines.append(provider.description)
-        lines.append("Use `/cli use <provider>` to switch the current workspace.")
+        lines.append("Use `/cli use <provider>` to switch the current agent workspace.")
         return "\n".join(lines)
 
     def _render_task_list(self, tasks: Iterable[WorkspaceTaskRecord]) -> str:
