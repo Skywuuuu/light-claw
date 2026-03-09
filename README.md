@@ -200,6 +200,8 @@ Each workspace contains:
 
 The selected CLI runs inside the selected workspace, so the workspace instructions, memory files, and agent-local tool profile files are part of its local context.
 
+When a conversation resumes an existing CLI session, `light-claw` also compares the current workspace against the last snapshot it recorded for that conversation. Any external file additions, edits, or deletions are prepended to the next prompt as a workspace observation so the resumed session can see changes that happened outside the CLI run itself.
+
 Each configured agent maps to:
 
 - one Feishu app/bot

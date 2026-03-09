@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+import os
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from .cli_runners import CliRunnerError, CliRunnerRegistry
 from .config import AgentSettings, Settings
@@ -11,13 +15,29 @@ from .models import (
     TASK_STATUS_FAILED,
     TASK_STATUS_RUNNING,
     TASK_STATUS_SUCCEEDED,
-    CliRunResult,
     FeishuReplyTarget,
     TaskRunRecord,
     WorkspaceRecord,
     WorkspaceTaskRecord,
 )
 from .store import StateStore
+
+
+_SNAPSHOT_IGNORED_DIRS = {
+    ".git",
+    ".hg",
+    ".svn",
+    ".venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".mypy_cache",
+    "session-observations",
+}
+_SNAPSHOT_IGNORED_FILES = {".DS_Store"}
+_OBSERVATION_MAX_FILES = 6
+_OBSERVATION_MAX_FILE_BYTES = 24 * 1024
+_OBSERVATION_MAX_TOTAL_CHARS = 48 * 1024
 
 
 @dataclass
@@ -63,6 +83,7 @@ class TaskExecutor:
         deliver_result: bool = True,
     ) -> TaskExecutionResult:
         session_id = None
+        session_snapshot = None
         if conversation_id and conversation_owner_id:
             session_id = self.store.get_workspace_session_id(
                 self.agent.agent_id,
@@ -70,6 +91,17 @@ class TaskExecutor:
                 conversation_owner_id,
                 workspace.workspace_id,
             )
+            session_snapshot = self._load_workspace_snapshot(
+                workspace=workspace,
+                conversation_id=conversation_id,
+                conversation_owner_id=conversation_owner_id,
+            )
+        prompt = self._inject_workspace_observation(
+            workspace=workspace,
+            prompt=prompt,
+            session_id=session_id,
+            snapshot_json=session_snapshot,
+        )
         if reply_target is not None and announce_start:
             await self.feishu_client.send_text(
                 reply_target,
@@ -97,6 +129,12 @@ class TaskExecutor:
             )
         except CliRunnerError as exc:
             await self._stop_heartbeat(heartbeat_task)
+            self._persist_workspace_snapshot(
+                workspace=workspace,
+                conversation_id=conversation_id,
+                conversation_owner_id=conversation_owner_id,
+                session_id=session_id,
+            )
             error = str(exc)
             if reply_target is not None:
                 await self.feishu_client.send_text(
@@ -111,6 +149,12 @@ class TaskExecutor:
             )
         except Exception:
             await self._stop_heartbeat(heartbeat_task)
+            self._persist_workspace_snapshot(
+                workspace=workspace,
+                conversation_id=conversation_id,
+                conversation_owner_id=conversation_owner_id,
+                session_id=session_id,
+            )
             error = "Unexpected internal error."
             if reply_target is not None:
                 await self.feishu_client.send_text(
@@ -127,9 +171,9 @@ class TaskExecutor:
         await self._stop_heartbeat(heartbeat_task)
         self._persist_session(
             workspace=workspace,
-            cli_result=result,
             conversation_id=conversation_id,
             conversation_owner_id=conversation_owner_id,
+            session_id=result.session_id or session_id,
         )
         if reply_target is not None and deliver_result:
             await self.feishu_client.send_text(reply_target, result.answer)
@@ -237,12 +281,12 @@ class TaskExecutor:
         self,
         *,
         workspace: WorkspaceRecord,
-        cli_result: CliRunResult,
         conversation_id: str | None,
         conversation_owner_id: str | None,
+        session_id: str | None,
     ) -> None:
         if (
-            not cli_result.session_id
+            not session_id
             or not conversation_id
             or not conversation_owner_id
         ):
@@ -252,8 +296,251 @@ class TaskExecutor:
             conversation_id,
             conversation_owner_id,
             workspace.workspace_id,
-            cli_result.session_id,
+            session_id,
         )
+        self._save_workspace_snapshot(
+            workspace=workspace,
+            conversation_id=conversation_id,
+            conversation_owner_id=conversation_owner_id,
+        )
+
+    def _persist_workspace_snapshot(
+        self,
+        *,
+        workspace: WorkspaceRecord,
+        conversation_id: str | None,
+        conversation_owner_id: str | None,
+        session_id: str | None,
+    ) -> None:
+        if not conversation_id or not conversation_owner_id:
+            return
+        self._save_workspace_snapshot(
+            workspace=workspace,
+            conversation_id=conversation_id,
+            conversation_owner_id=conversation_owner_id,
+        )
+
+    def _inject_workspace_observation(
+        self,
+        *,
+        workspace: WorkspaceRecord,
+        prompt: str,
+        session_id: str | None,
+        snapshot_json: str | None,
+    ) -> str:
+        if not session_id or not snapshot_json:
+            return prompt
+        previous = self._parse_workspace_snapshot(snapshot_json)
+        current = self._snapshot_workspace(workspace.path)
+        added = sorted(path for path in current if path not in previous)
+        modified = sorted(
+            path for path, state in current.items() if previous.get(path) != state
+        )
+        modified = [path for path in modified if path not in added]
+        deleted = sorted(path for path in previous if path not in current)
+        observation = self._render_workspace_observation(
+            workspace.path,
+            added=added,
+            modified=modified,
+            deleted=deleted,
+        )
+        if not observation:
+            return prompt
+        return "\n".join(
+            [
+                "Workspace observation:",
+                "The workspace changed outside of this Codex session since your last turn.",
+                "Treat the following as observed state before handling the user request.",
+                "",
+                observation,
+                "",
+                "User request:",
+                prompt,
+            ]
+        )
+
+    @staticmethod
+    def _parse_workspace_snapshot(snapshot_json: str) -> dict[str, list[int]]:
+        try:
+            raw = json.loads(snapshot_json)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        snapshot: dict[str, list[int]] = {}
+        for key, value in raw.items():
+            if (
+                isinstance(key, str)
+                and isinstance(value, list)
+                and len(value) == 2
+                and all(isinstance(item, int) for item in value)
+            ):
+                snapshot[key] = [value[0], value[1]]
+        return snapshot
+
+    def _capture_workspace_snapshot(self, workspace_dir: Path) -> str:
+        return json.dumps(
+            self._snapshot_workspace(workspace_dir),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    def _load_workspace_snapshot(
+        self,
+        *,
+        workspace: WorkspaceRecord,
+        conversation_id: str,
+        conversation_owner_id: str,
+    ) -> str | None:
+        path = self._workspace_snapshot_path(
+            workspace=workspace,
+            conversation_id=conversation_id,
+            conversation_owner_id=conversation_owner_id,
+        )
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+
+    def _save_workspace_snapshot(
+        self,
+        *,
+        workspace: WorkspaceRecord,
+        conversation_id: str,
+        conversation_owner_id: str,
+    ) -> None:
+        path = self._workspace_snapshot_path(
+            workspace=workspace,
+            conversation_id=conversation_id,
+            conversation_owner_id=conversation_owner_id,
+        )
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                self._capture_workspace_snapshot(workspace.path),
+                encoding="utf-8",
+            )
+        except OSError:
+            return
+
+    def _workspace_snapshot_path(
+        self,
+        *,
+        workspace: WorkspaceRecord,
+        conversation_id: str,
+        conversation_owner_id: str,
+    ) -> Path:
+        digest = hashlib.sha1(
+            "{}:{}:{}:{}".format(
+                self.agent.agent_id,
+                conversation_owner_id,
+                conversation_id,
+                workspace.workspace_id,
+            ).encode("utf-8")
+        ).hexdigest()
+        return (
+            workspace.path
+            / ".light-claw"
+            / "session-observations"
+            / f"{digest}.json"
+        )
+
+    @staticmethod
+    def _snapshot_workspace(workspace_dir: Path) -> dict[str, list[int]]:
+        if not workspace_dir.exists():
+            return {}
+        snapshot: dict[str, list[int]] = {}
+        for root, dirnames, filenames in os.walk(workspace_dir):
+            dirnames[:] = [
+                name for name in dirnames if name not in _SNAPSHOT_IGNORED_DIRS
+            ]
+            base = Path(root)
+            for filename in sorted(filenames):
+                if filename in _SNAPSHOT_IGNORED_FILES:
+                    continue
+                path = base / filename
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                relative_path = path.relative_to(workspace_dir).as_posix()
+                snapshot[relative_path] = [int(stat.st_mtime_ns), int(stat.st_size)]
+        return snapshot
+
+    def _render_workspace_observation(
+        self,
+        workspace_dir: Path,
+        *,
+        added: list[str],
+        modified: list[str],
+        deleted: list[str],
+    ) -> str:
+        if not added and not modified and not deleted:
+            return ""
+        remaining_chars = _OBSERVATION_MAX_TOTAL_CHARS
+        sections: list[str] = []
+        included_paths = 0
+        for label, paths in (("Added", added), ("Modified", modified)):
+            for relative_path in paths:
+                if included_paths >= _OBSERVATION_MAX_FILES or remaining_chars <= 0:
+                    break
+                entry = self._render_workspace_file_observation(
+                    workspace_dir / relative_path,
+                    label=label,
+                    relative_path=relative_path,
+                )
+                if not entry:
+                    continue
+                if len(entry) > remaining_chars:
+                    entry = entry[:remaining_chars].rstrip() + "\n(truncated)\n"
+                sections.append(entry)
+                remaining_chars -= len(entry)
+                included_paths += 1
+        remaining_hidden = max(0, len(added) + len(modified) - included_paths)
+        if deleted:
+            deleted_block = "\n".join(
+                ["Deleted files:"] + [f"- {relative_path}" for relative_path in deleted]
+            )
+            if len(deleted_block) <= remaining_chars:
+                sections.append(deleted_block)
+                remaining_chars -= len(deleted_block)
+            else:
+                remaining_hidden += len(deleted)
+        if remaining_hidden > 0 and remaining_chars > 0:
+            sections.append(
+                f"{remaining_hidden} additional changed file(s) omitted from observation."
+            )
+        return "\n\n".join(section for section in sections if section).strip()
+
+    @staticmethod
+    def _render_workspace_file_observation(
+        path: Path,
+        *,
+        label: str,
+        relative_path: str,
+    ) -> str:
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            return f"{label}: {relative_path}\nUnable to read file: {exc}"
+        if b"\x00" in data:
+            return (
+                f"{label}: {relative_path}\n"
+                f"Binary file observed. Size: {len(data)} bytes."
+            )
+        truncated = len(data) > _OBSERVATION_MAX_FILE_BYTES
+        if truncated:
+            data = data[:_OBSERVATION_MAX_FILE_BYTES]
+        content = data.decode("utf-8", errors="replace")
+        lines = [
+            f"{label}: {relative_path}",
+            "```text",
+            content,
+        ]
+        if truncated:
+            lines.append("... (truncated)")
+        lines.append("```")
+        return "\n".join(lines)
 
     @staticmethod
     def _truncate_excerpt(answer: str, max_chars: int = 400) -> str:

@@ -178,3 +178,67 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(updated.next_run_at)
             self.assertEqual(updated.last_result_excerpt, "step complete")
             store.close()
+
+    async def test_execute_prompt_injects_external_workspace_observation_on_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace_path = Path(tmp_dir) / "default"
+            workspace_path.mkdir(parents=True, exist_ok=True)
+            store = StateStore(Path(tmp_dir) / "state.db")
+            workspace = store.create_workspace(
+                WorkspaceRecord(
+                    agent_id="agent-a",
+                    owner_id="ou_1",
+                    workspace_id="default",
+                    name="Default",
+                    path=workspace_path,
+                    cli_provider="codex",
+                    created_at=0.0,
+                    updated_at=0.0,
+                )
+            )
+            runner = _FakeRunner(
+                CliRunResult(session_id="sess-1", answer="done", raw_output="")
+            )
+            executor = TaskExecutor(
+                settings=self._build_settings(tmp_dir),
+                agent=self._build_agent(),
+                store=store,
+                cli_registry=_FakeRegistry(runner),
+                feishu_client=_FakeFeishuClient(),
+            )
+
+            await executor.execute_prompt(
+                workspace=workspace,
+                prompt="First turn",
+                conversation_id="conv_1",
+                conversation_owner_id="ou_1",
+                deliver_result=False,
+            )
+            self.assertEqual(runner.calls[0][0], "First turn")
+
+            (workspace_path / "IMPROVEMENT_RESEARCH.md").write_text(
+                "external observation\nsecond line\n",
+                encoding="utf-8",
+            )
+            runner.result = CliRunResult(
+                session_id="sess-1",
+                answer="follow-up done",
+                raw_output="",
+            )
+
+            await executor.execute_prompt(
+                workspace=workspace,
+                prompt="Continue",
+                conversation_id="conv_1",
+                conversation_owner_id="ou_1",
+                deliver_result=False,
+            )
+
+            resumed_prompt, resumed_dir, resumed_session = runner.calls[-1]
+            self.assertEqual(resumed_dir.resolve(), workspace_path.resolve())
+            self.assertEqual(resumed_session, "sess-1")
+            self.assertIn("Workspace observation:", resumed_prompt)
+            self.assertIn("Added: IMPROVEMENT_RESEARCH.md", resumed_prompt)
+            self.assertIn("external observation", resumed_prompt)
+            self.assertTrue(resumed_prompt.rstrip().endswith("Continue"))
+            store.close()
