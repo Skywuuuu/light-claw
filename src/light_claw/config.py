@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Any, Mapping, Optional
 
 try:
-    from dotenv import load_dotenv
+    from dotenv import dotenv_values
 except ModuleNotFoundError:
 
-    def load_dotenv() -> bool:
-        return False
+    def dotenv_values(*args: Any, **kwargs: Any) -> dict[str, str | None]:
+        return {}
 
 
 APP_NAME = "light-claw"
@@ -19,48 +19,81 @@ LEGACY_APP_NAME = "codex-claw"
 DEFAULT_AGENT_ID = "default"
 
 
-load_dotenv()
+def _load_env(base_dir: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    env_path = base_dir / ".env"
+    if env_path.exists():
+        for key, value in dotenv_values(env_path).items():
+            if value is not None:
+                values[str(key)] = value
+    for key, value in os.environ.items():
+        values[key] = value
+    return values
 
 
-def _read_raw(name: str, *aliases: str) -> Optional[str]:
+def _read_raw(
+    name: str,
+    *aliases: str,
+    environ: Mapping[str, str] | None = None,
+) -> Optional[str]:
+    source = environ or os.environ
     for key in (name, *aliases):
-        raw = os.getenv(key)
+        raw = source.get(key)
         if raw is not None:
             return raw
     return None
 
 
-def _read_bool(name: str, default: bool, *aliases: str) -> bool:
-    raw = _read_raw(name, *aliases)
+def _read_bool(
+    name: str,
+    default: bool,
+    *aliases: str,
+    environ: Mapping[str, str] | None = None,
+) -> bool:
+    raw = _read_raw(name, *aliases, environ=environ)
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _read_int(name: str, default: int, *aliases: str) -> int:
-    raw = _read_raw(name, *aliases)
+def _read_int(
+    name: str,
+    default: int,
+    *aliases: str,
+    environ: Mapping[str, str] | None = None,
+) -> int:
+    raw = _read_raw(name, *aliases, environ=environ)
     if raw is None or not raw.strip():
         return default
     return int(raw.strip())
 
 
-def _read_str(name: str, default: str, *aliases: str) -> str:
-    raw = _read_raw(name, *aliases)
+def _read_str(
+    name: str,
+    default: str,
+    *aliases: str,
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    raw = _read_raw(name, *aliases, environ=environ)
     if raw is None:
         return default
     return raw.strip()
 
 
-def _read_optional_str(name: str, *aliases: str) -> Optional[str]:
-    raw = _read_raw(name, *aliases)
+def _read_optional_str(
+    name: str,
+    *aliases: str,
+    environ: Mapping[str, str] | None = None,
+) -> Optional[str]:
+    raw = _read_raw(name, *aliases, environ=environ)
     if raw is None:
         return None
     value = raw.strip()
     return value or None
 
 
-def _read_feishu_event_mode() -> str:
-    raw = _read_str("FEISHU_EVENT_MODE", "webhook").strip().lower()
+def _read_feishu_event_mode(environ: Mapping[str, str] | None = None) -> str:
+    raw = _read_str("FEISHU_EVENT_MODE", "webhook", environ=environ).strip().lower()
     mapping = {
         "webhook": "webhook",
         "http": "webhook",
@@ -86,12 +119,13 @@ def _normalize_codex_sandbox(raw: str) -> str:
     return mapping.get(raw.strip().lower(), "full-auto")
 
 
-def _read_codex_sandbox() -> str:
+def _read_codex_sandbox(environ: Mapping[str, str] | None = None) -> str:
     raw = _read_str(
         "LIGHT_CLAW_SANDBOX",
         "full-auto",
         "CODEX_CLAW_SANDBOX",
         "CODEX_SANDBOX",
+        environ=environ,
     )
     return _normalize_codex_sandbox(raw)
 
@@ -173,83 +207,163 @@ class Settings:
 
     @classmethod
     def from_env(cls, base_dir: Optional[Path] = None) -> "Settings":
+        initial_base_dir = (base_dir or Path.cwd()).resolve()
+        environ = _load_env(initial_base_dir)
         root_dir = (
-            _resolve_optional_path(_read_optional_str("LIGHT_CLAW_BASE_DIR"), Path.cwd())
-            or (base_dir or Path.cwd()).resolve()
+            _resolve_optional_path(
+                _read_optional_str("LIGHT_CLAW_BASE_DIR", environ=environ),
+                initial_base_dir,
+            )
+            or initial_base_dir
         )
-        data_dir_raw = _read_optional_str("LIGHT_CLAW_DATA_DIR")
-        data_dir = Path(data_dir_raw or str(root_dir / ".data")).expanduser().resolve()
+        data_dir = _resolve_optional_path(
+            _read_optional_str("LIGHT_CLAW_DATA_DIR", environ=environ),
+            root_dir,
+        ) or (root_dir / ".data").resolve()
         workspaces_dir = data_dir / "workspaces"
-        archive_dir_raw = _read_optional_str("LIGHT_CLAW_ARCHIVE_DIR")
-        archive_dir = Path(
-            archive_dir_raw or str(root_dir.parent / f"{APP_NAME}-data")
-        ).expanduser().resolve()
+        archive_dir = _resolve_optional_path(
+            _read_optional_str("LIGHT_CLAW_ARCHIVE_DIR", environ=environ),
+            root_dir,
+        ) or (root_dir.parent / f"{APP_NAME}-data").resolve()
         database_path = _default_database_path(data_dir)
-        codex_sandbox = _read_codex_sandbox()
-        default_cli_provider = _read_str("DEFAULT_CLI_PROVIDER", "codex").lower()
-        allow_from = _read_str("ALLOW_FROM", "*")
-        default_workspace_name = _read_str("DEFAULT_WORKSPACE_NAME", "default")
+        codex_sandbox = _read_codex_sandbox(environ)
+        default_cli_provider = _read_str(
+            "DEFAULT_CLI_PROVIDER",
+            "codex",
+            environ=environ,
+        ).lower()
+        allow_from = _read_str("ALLOW_FROM", "*", environ=environ)
+        default_workspace_name = _read_str(
+            "DEFAULT_WORKSPACE_NAME",
+            "default",
+            environ=environ,
+        )
 
         settings = cls(
             base_dir=root_dir,
-            host=_read_str("HOST", "127.0.0.1"),
-            port=_read_int("PORT", 8000),
+            host=_read_str("HOST", "127.0.0.1", environ=environ),
+            port=_read_int("PORT", 8000, environ=environ),
             data_dir=data_dir,
             database_path=database_path,
             workspaces_dir=workspaces_dir,
-            archive_enabled=_read_bool("LIGHT_CLAW_ARCHIVE_ENABLED", True),
+            archive_enabled=_read_bool(
+                "LIGHT_CLAW_ARCHIVE_ENABLED",
+                True,
+                environ=environ,
+            ),
             archive_dir=archive_dir,
             archive_interval_seconds=_read_int(
-                "LIGHT_CLAW_ARCHIVE_INTERVAL_SECONDS", 12 * 60 * 60
+                "LIGHT_CLAW_ARCHIVE_INTERVAL_SECONDS",
+                12 * 60 * 60,
+                environ=environ,
             ),
-            codex_bin=_read_str("CODEX_BIN", "codex"),
-            codex_model=_read_optional_str("CODEX_MODEL"),
-            codex_search=_read_bool("CODEX_SEARCH", False),
+            codex_bin=_read_str("CODEX_BIN", "codex", environ=environ),
+            codex_model=_read_optional_str("CODEX_MODEL", environ=environ),
+            codex_search=_read_bool("CODEX_SEARCH", False, environ=environ),
             codex_sandbox=codex_sandbox,
-            codex_timeout_min_seconds=_read_int("CODEX_TIMEOUT_MIN_SECONDS", 180),
-            codex_timeout_max_seconds=_read_int("CODEX_TIMEOUT_MAX_SECONDS", 900),
-            codex_timeout_per_char_ms=_read_int("CODEX_TIMEOUT_PER_CHAR_MS", 80),
-            codex_stall_timeout_seconds=_read_int("CODEX_STALL_TIMEOUT_SECONDS", 120),
-            task_heartbeat_enabled=_read_bool("LIGHT_CLAW_TASK_HEARTBEAT_ENABLED", True),
-            task_heartbeat_interval_seconds=_read_int(
-                "LIGHT_CLAW_TASK_HEARTBEAT_INTERVAL_SECONDS", 30 * 60
+            codex_timeout_min_seconds=_read_int(
+                "CODEX_TIMEOUT_MIN_SECONDS",
+                180,
+                environ=environ,
             ),
-            cron_enabled=_read_bool("LIGHT_CLAW_CRON_ENABLED", True),
+            codex_timeout_max_seconds=_read_int(
+                "CODEX_TIMEOUT_MAX_SECONDS",
+                900,
+                environ=environ,
+            ),
+            codex_timeout_per_char_ms=_read_int(
+                "CODEX_TIMEOUT_PER_CHAR_MS",
+                80,
+                environ=environ,
+            ),
+            codex_stall_timeout_seconds=_read_int(
+                "CODEX_STALL_TIMEOUT_SECONDS",
+                120,
+                environ=environ,
+            ),
+            task_heartbeat_enabled=_read_bool(
+                "LIGHT_CLAW_TASK_HEARTBEAT_ENABLED",
+                True,
+                environ=environ,
+            ),
+            task_heartbeat_interval_seconds=_read_int(
+                "LIGHT_CLAW_TASK_HEARTBEAT_INTERVAL_SECONDS",
+                30 * 60,
+                environ=environ,
+            ),
+            cron_enabled=_read_bool(
+                "LIGHT_CLAW_CRON_ENABLED",
+                True,
+                environ=environ,
+            ),
             cron_poll_interval_seconds=_read_int(
-                "LIGHT_CLAW_CRON_POLL_INTERVAL_SECONDS", 60
+                "LIGHT_CLAW_CRON_POLL_INTERVAL_SECONDS",
+                60,
+                environ=environ,
             ),
             status_heartbeat_enabled=_read_bool(
-                "LIGHT_CLAW_STATUS_HEARTBEAT_ENABLED", True
+                "LIGHT_CLAW_STATUS_HEARTBEAT_ENABLED",
+                True,
+                environ=environ,
             ),
             status_heartbeat_seconds=_read_int(
-                "LIGHT_CLAW_STATUS_HEARTBEAT_SECONDS", 30
+                "LIGHT_CLAW_STATUS_HEARTBEAT_SECONDS",
+                30,
+                environ=environ,
             ),
             inbound_message_ttl_seconds=_read_int(
-                "LIGHT_CLAW_INBOUND_MESSAGE_TTL_SECONDS", 7 * 24 * 60 * 60
+                "LIGHT_CLAW_INBOUND_MESSAGE_TTL_SECONDS",
+                7 * 24 * 60 * 60,
+                environ=environ,
             ),
             default_cli_provider=default_cli_provider,
-            feishu_enabled=_read_bool("FEISHU_ENABLED", True),
-            feishu_event_mode=_read_feishu_event_mode(),
-            feishu_app_id=_read_optional_str("FEISHU_APP_ID"),
-            feishu_app_secret=_read_optional_str("FEISHU_APP_SECRET"),
-            feishu_verification_token=_read_optional_str("FEISHU_VERIFICATION_TOKEN"),
+            feishu_enabled=_read_bool("FEISHU_ENABLED", True, environ=environ),
+            feishu_event_mode=_read_feishu_event_mode(environ),
+            feishu_app_id=_read_optional_str("FEISHU_APP_ID", environ=environ),
+            feishu_app_secret=_read_optional_str(
+                "FEISHU_APP_SECRET",
+                environ=environ,
+            ),
+            feishu_verification_token=_read_optional_str(
+                "FEISHU_VERIFICATION_TOKEN",
+                environ=environ,
+            ),
             allow_from=allow_from,
             default_workspace_name=default_workspace_name,
             agents=tuple(
                 _load_agents(
                     root_dir=root_dir,
-                    feishu_enabled=_read_bool("FEISHU_ENABLED", True),
+                    feishu_enabled=_read_bool(
+                        "FEISHU_ENABLED",
+                        True,
+                        environ=environ,
+                    ),
+                    environ=environ,
                     defaults={
                         "allow_from": allow_from,
                         "default_workspace_name": default_workspace_name,
                         "default_cli_provider": default_cli_provider,
-                        "codex_model": _read_optional_str("CODEX_MODEL"),
-                        "codex_search": _read_bool("CODEX_SEARCH", False),
+                        "codex_model": _read_optional_str(
+                            "CODEX_MODEL",
+                            environ=environ,
+                        ),
+                        "codex_search": _read_bool(
+                            "CODEX_SEARCH",
+                            False,
+                            environ=environ,
+                        ),
                         "codex_sandbox": codex_sandbox,
-                        "feishu_app_id": _read_optional_str("FEISHU_APP_ID"),
-                        "feishu_app_secret": _read_optional_str("FEISHU_APP_SECRET"),
+                        "feishu_app_id": _read_optional_str(
+                            "FEISHU_APP_ID",
+                            environ=environ,
+                        ),
+                        "feishu_app_secret": _read_optional_str(
+                            "FEISHU_APP_SECRET",
+                            environ=environ,
+                        ),
                         "feishu_verification_token": _read_optional_str(
-                            "FEISHU_VERIFICATION_TOKEN"
+                            "FEISHU_VERIFICATION_TOKEN",
+                            environ=environ,
                         ),
                     },
                 )
@@ -344,9 +458,10 @@ def _load_agents(
     *,
     root_dir: Path,
     feishu_enabled: bool,
+    environ: Mapping[str, str],
     defaults: Mapping[str, Any],
 ) -> list[AgentSettings]:
-    agents_file = _read_optional_str("LIGHT_CLAW_AGENTS_FILE")
+    agents_file = _read_optional_str("LIGHT_CLAW_AGENTS_FILE", environ=environ)
     if not agents_file:
         return [
             AgentSettings(

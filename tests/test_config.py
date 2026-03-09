@@ -89,6 +89,48 @@ class SettingsCompatibilityTest(unittest.TestCase):
             expected_data_dir.resolve() / "light-claw.db",
         )
 
+    def test_relative_data_dir_is_resolved_from_base_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base_dir = Path(tmp_dir) / "repo"
+            with patch.dict(
+                os.environ,
+                {
+                    "FEISHU_ENABLED": "false",
+                    "LIGHT_CLAW_DATA_DIR": ".isolated-data",
+                },
+                clear=False,
+            ):
+                settings = Settings.from_env(base_dir=base_dir)
+
+        self.assertEqual(settings.data_dir, (base_dir / ".isolated-data").resolve())
+        self.assertEqual(
+            settings.database_path,
+            (base_dir / ".isolated-data" / "light-claw.db").resolve(),
+        )
+
+    def test_explicit_base_dir_does_not_load_cwd_dotenv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cwd_dir = Path(tmp_dir) / "live-instance"
+            base_dir = Path(tmp_dir) / "test-instance"
+            cwd_dir.mkdir(parents=True)
+            (cwd_dir / ".env").write_text(
+                "LIGHT_CLAW_DATA_DIR=.live-data\n",
+                encoding="utf-8",
+            )
+            old_cwd = Path.cwd()
+            try:
+                os.chdir(cwd_dir)
+                with patch.dict(
+                    os.environ,
+                    {"FEISHU_ENABLED": "false", "LIGHT_CLAW_DATA_DIR": ""},
+                    clear=False,
+                ):
+                    settings = Settings.from_env(base_dir=base_dir)
+            finally:
+                os.chdir(old_cwd)
+
+        self.assertEqual(settings.data_dir, (base_dir / ".data").resolve())
+
     def test_reuses_legacy_database_filename_when_present(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             base_dir = Path(tmp_dir) / "repo"

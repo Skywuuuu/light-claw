@@ -18,8 +18,9 @@ class ServerTest(unittest.TestCase):
                 {
                     "FEISHU_ENABLED": "false",
                     "LIGHT_CLAW_ARCHIVE_ENABLED": "false",
+                    "LIGHT_CLAW_DATA_DIR": "",
                 },
-                clear=False,
+                clear=True,
             ):
                 settings = Settings.from_env(base_dir=Path(tmp_dir) / "repo")
 
@@ -64,8 +65,9 @@ class ServerTest(unittest.TestCase):
                     "FEISHU_EVENT_MODE": "webhook",
                     "LIGHT_CLAW_AGENTS_FILE": str(agents_file),
                     "LIGHT_CLAW_ARCHIVE_ENABLED": "false",
+                    "LIGHT_CLAW_DATA_DIR": "",
                 },
-                clear=False,
+                clear=True,
             ):
                 settings = Settings.from_env(base_dir=Path(tmp_dir) / "repo")
 
