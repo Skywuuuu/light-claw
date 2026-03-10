@@ -26,9 +26,16 @@ class CommandsTest(unittest.TestCase):
         self.assertEqual(cron_command.kind, "cron_every")
         self.assertEqual(cron_command.argument, "60 1")
 
+        archive_command = parse_command("/archive daily 03:15")
+        self.assertIsNotNone(archive_command)
+        self.assertEqual(archive_command.kind, "archive_daily")
+        self.assertEqual(archive_command.argument, "03:15")
+
     def test_help_text_omits_workspace_commands(self) -> None:
         text = help_text()
         self.assertNotIn("/workspace", text)
+        self.assertIn("/archive current", text)
+        self.assertIn("/archive daily <HH:MM>", text)
         self.assertIn("/cli list", text)
         self.assertIn("/task list", text)
         self.assertIn("/task status <id|index>", text)

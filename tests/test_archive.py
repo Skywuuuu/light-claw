@@ -1,8 +1,13 @@
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
-from light_claw.archive import WorkspaceArchiveService
+from light_claw.archive import (
+    ARCHIVE_DAILY_TIME_SETTING_KEY,
+    WorkspaceArchiveService,
+    compute_next_daily_run_at,
+)
 from light_claw.models import WorkspaceRecord
 from light_claw.store import StateStore
 
@@ -108,4 +113,35 @@ class WorkspaceArchiveServiceTest(unittest.IsolatedAsyncioTestCase):
                 / "writer"
                 / "AGENTS.md"
             ).exists()
+        )
+
+    def test_compute_next_daily_run_at_rolls_forward(self) -> None:
+        now = datetime(2025, 1, 1, 10, 0, tzinfo=timezone.utc).timestamp()
+        same_day = compute_next_daily_run_at(now, "23:30", timezone.utc)
+        self.assertEqual(
+            datetime.fromtimestamp(same_day, tz=timezone.utc),
+            datetime(2025, 1, 1, 23, 30, tzinfo=timezone.utc),
+        )
+
+        next_day = compute_next_daily_run_at(same_day, "23:30", timezone.utc)
+        self.assertEqual(
+            datetime.fromtimestamp(next_day, tz=timezone.utc),
+            datetime(2025, 1, 2, 23, 30, tzinfo=timezone.utc),
+        )
+
+    async def test_update_daily_time_persists_runtime_setting(self) -> None:
+        service = WorkspaceArchiveService(
+            store=self.store,
+            archive_root=self.base_dir / "archive",
+            interval_seconds=12 * 60 * 60,
+        )
+
+        updated = service.update_daily_time("3:15")
+
+        self.assertEqual(updated, "03:15")
+        self.assertEqual(service.daily_time, "03:15")
+        self.assertIsNotNone(service.next_run_at)
+        self.assertEqual(
+            self.store.get_app_setting(ARCHIVE_DAILY_TIME_SETTING_KEY),
+            "03:15",
         )

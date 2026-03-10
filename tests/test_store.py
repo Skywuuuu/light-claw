@@ -88,6 +88,14 @@ class StoreTest(unittest.TestCase):
             self.assertTrue(store.remember_inbound_message("agent-b", "msg_1"))
             store.close()
 
+    def test_app_settings_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = StateStore(Path(tmp_dir) / "state.db")
+            self.assertIsNone(store.get_app_setting("archive.daily_time"))
+            store.set_app_setting("archive.daily_time", "03:15")
+            self.assertEqual(store.get_app_setting("archive.daily_time"), "03:15")
+            store.close()
+
     def test_agent_scoped_sessions_do_not_conflict(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             store = StateStore(Path(tmp_dir) / "state.db")

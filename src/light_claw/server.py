@@ -242,6 +242,7 @@ def build_services(settings: Settings) -> RuntimeServices:
             cli_registry=cli_registry,
             feishu_client=feishu_client,
             task_executor=task_executor,
+            archive_service=archive_service,
             observer=health,
         )
         agent_runtimes[agent.agent_id] = AgentRuntime(

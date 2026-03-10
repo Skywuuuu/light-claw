@@ -94,6 +94,11 @@ TASK_RUN_COLUMNS = {
     "error_message",
     "result_excerpt",
 }
+APP_SETTING_COLUMNS = {
+    "key",
+    "value",
+    "updated_at",
+}
 
 
 class StateStore:
@@ -258,6 +263,12 @@ class StateStore:
                 PRIMARY KEY(agent_id, run_id)
             );
 
+            CREATE TABLE IF NOT EXISTS app_setting (
+                key TEXT NOT NULL PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at REAL NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_workspace_task_lookup
             ON workspace_task(agent_id, owner_id, workspace_id, updated_at);
 
@@ -404,6 +415,37 @@ class StateStore:
                 return True
             except sqlite3.IntegrityError:
                 return False
+
+    def get_app_setting(self, key: str) -> Optional[str]:
+        with self._lock:
+            row = self._db.execute(
+                """
+                SELECT value
+                FROM app_setting
+                WHERE key = ?
+                """,
+                (key,),
+            ).fetchone()
+        if row is None:
+            return None
+        return str(row["value"])
+
+    def set_app_setting(self, key: str, value: str) -> str:
+        now = time.time()
+        with self._lock:
+            self._db.execute(
+                """
+                INSERT INTO app_setting(key, value, updated_at)
+                VALUES(?, ?, ?)
+                ON CONFLICT(key)
+                DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+                """,
+                (key, value, now),
+            )
+            self._db.commit()
+        return value
 
     def get_agent_workspace(self, agent_id: str) -> Optional[WorkspaceRecord]:
         with self._lock:

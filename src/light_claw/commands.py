@@ -32,6 +32,14 @@ def parse_command(content: str) -> Optional[Command]:
             target = parts[2].strip() if len(parts) > 2 else ""
             return Command(kind="cli_use", argument=target or None)
         return Command(kind="invalid", argument=raw)
+    if cmd == "/archive":
+        sub = parts[1].lower() if len(parts) > 1 else "current"
+        if sub in {"current", "show", "status"}:
+            return Command(kind="archive_current")
+        if sub in {"daily", "at"}:
+            target = " ".join(parts[2:]).strip()
+            return Command(kind="archive_daily", argument=target or None)
+        return Command(kind="invalid", argument=raw)
     if cmd == "/task":
         sub = parts[1].lower() if len(parts) > 1 else "list"
         if sub in {"list", "ls"}:
@@ -65,6 +73,8 @@ def help_text() -> str:
         [
             "Available commands:",
             "/help",
+            "/archive current",
+            "/archive daily <HH:MM>",
             "/cli list",
             "/cli current",
             "/cli use <provider>",

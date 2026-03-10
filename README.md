@@ -27,6 +27,8 @@
   - `/cli list`
   - `/cli current`
   - `/cli use <provider>`
+  - `/archive current`
+  - `/archive daily <HH:MM>`
   - `/help`
   - `/task list`
   - `/task status <id|index>`
@@ -133,7 +135,7 @@ How the pieces connect:
 - Each workspace directory is both execution context and long-term memory: the CLI runs inside it, `memory/` persists user/project knowledge, and `.light-claw/` stores internal state such as observations and schedule no-change tracking.
 - Background services do not execute work themselves; they only decide when work should run, then call back into the same `TaskExecutor`.
 - The selected CLI provider is stored on the agent workspace; today that means Codex, but the registry keeps the runtime path adapter-based instead of hardcoded.
-- The archive service is deliberately separate from task execution: it mirrors workspace state for backup/debugging, but it does not participate in prompt construction.
+- The archive service is deliberately separate from task execution: it mirrors every known agent workspace for backup/debugging, but it does not participate in prompt construction.
 
 ## Project layout
 
@@ -181,7 +183,7 @@ Workspace content is also archived to a sibling `light-claw-data/` directory by 
       memory/
 ```
 
-The service performs one archive sync during startup and then repeats every 12 hours.
+The service performs one archive sync during startup and then repeats every 12 hours by default. You can also switch it to a fixed daily backup time with `/archive daily <HH:MM>`, which is stored in SQLite and applied to all agent workspaces.
 
 ## Setup
 
@@ -291,6 +293,8 @@ Each workspace contains:
 The selected CLI runs inside the selected workspace, so the workspace instructions, memory files, and agent-local tool profile files are part of its local context.
 
 `light-claw` also keeps a small per-session observation queue in the workspace. The next prompt for that conversation prepends any queued observations, such as workspace file changes, mutating command results, background task updates, and previous runtime failures. Workspace file changes are still computed from the last recorded snapshot, but they now flow through the same observation path as the other session events.
+
+Archive control stays global instead of becoming a background task. `/archive current` shows the active archive schedule, and `/archive daily <HH:MM>` switches the archive loop to one backup per day at that server-local time. The archive loop still does one sync on startup, and the configured daily time applies to every known agent workspace.
 
 Each configured agent maps to:
 

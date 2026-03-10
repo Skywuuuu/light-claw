@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from light_claw.archive import WorkspaceArchiveService
 from light_claw.chat import ChatService
 from light_claw.config import AgentSettings, Settings
 from light_claw.models import (
@@ -499,4 +500,67 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn("command_result", injected_prompt)
             self.assertIn("CLI provider updated.", injected_prompt)
             self.assertTrue(injected_prompt.rstrip().endswith("Continue"))
+            store.close()
+
+    async def test_archive_daily_command_updates_backup_schedule(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace_path = Path(tmp_dir) / "default"
+            workspace_path.mkdir(parents=True, exist_ok=True)
+            store = StateStore(Path(tmp_dir) / "state.db")
+            store.create_workspace(
+                WorkspaceRecord(
+                    agent_id="agent-a",
+                    owner_id="ou_1",
+                    workspace_id="default",
+                    name="Default",
+                    path=workspace_path,
+                    cli_provider="codex",
+                    created_at=0.0,
+                    updated_at=0.0,
+                )
+            )
+            runner = _FakeRunner(
+                CliRunResult(session_id="sess-1", answer="done", raw_output="")
+            )
+            registry = _FakeRegistry(runner)
+            feishu = _FakeFeishuClient()
+            executor = TaskExecutor(
+                settings=self._build_settings(tmp_dir),
+                agent=self._build_agent(),
+                store=store,
+                cli_registry=registry,
+                feishu_client=feishu,
+            )
+            archive_service = WorkspaceArchiveService(
+                store=store,
+                archive_root=Path(tmp_dir) / "archive",
+                interval_seconds=12 * 60 * 60,
+            )
+            chat = ChatService(
+                settings=self._build_settings(tmp_dir),
+                agent=self._build_agent(),
+                store=store,
+                workspace_manager=_FakeWorkspaceManager(),
+                cli_registry=registry,
+                feishu_client=feishu,
+                task_executor=executor,
+                archive_service=archive_service,
+            )
+
+            await chat.handle_message(
+                FeishuInboundMessage(
+                    agent_id="agent-a",
+                    bot_app_id="bot-app",
+                    owner_id="ou_1",
+                    conversation_id="conv_1",
+                    message_id="msg-1",
+                    message_type="text",
+                    content="/archive daily 03:15",
+                    reply_target=FeishuReplyTarget("ou_1", "open_id"),
+                )
+            )
+
+            self.assertIn("Archive schedule updated.", feishu.messages[-1][2])
+            self.assertEqual(store.get_app_setting("archive.daily_time"), "03:15")
+            self.assertEqual(archive_service.daily_time, "03:15")
             store.close()

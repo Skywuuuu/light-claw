@@ -5,6 +5,7 @@ import logging
 import time
 from typing import Dict, Iterable, Optional, Protocol
 
+from .archive import WorkspaceArchiveService
 from .cli_runners import CliRunnerRegistry
 from .commands import Command, help_text, parse_command
 from .config import AgentSettings, Settings
@@ -53,6 +54,7 @@ class ChatService:
         cli_registry: CliRunnerRegistry,
         feishu_client: FeishuClient,
         task_executor: TaskExecutor,
+        archive_service: WorkspaceArchiveService | None = None,
         observer: ChatObserver | None = None,
     ) -> None:
         self.settings = settings
@@ -62,6 +64,7 @@ class ChatService:
         self.cli_registry = cli_registry
         self.feishu_client = feishu_client
         self.task_executor = task_executor
+        self.archive_service = archive_service
         self.observer = observer
         self._conversation_locks: Dict[str, asyncio.Lock] = {}
 
@@ -115,6 +118,34 @@ class ChatService:
     ) -> Optional[str]:
         if command.kind == "help":
             return help_text()
+        if command.kind == "archive_current":
+            return self._render_archive_status()
+        if command.kind == "archive_daily":
+            if not command.argument:
+                return "Usage: /archive daily <HH:MM>"
+            if self.archive_service is None:
+                return "Archive service is disabled."
+            try:
+                daily_time = self.archive_service.update_daily_time(command.argument)
+            except ValueError:
+                return "Usage: /archive daily <HH:MM> (24-hour local time)"
+            response = "\n".join(
+                [
+                    "Archive schedule updated.",
+                    "Daily at {} (server local time).".format(daily_time),
+                    "Scope: all agent workspaces.",
+                ]
+            )
+            workspace = self._get_workspace()
+            if workspace is not None:
+                self._record_command_observation(
+                    workspace=workspace,
+                    message=message,
+                    command_kind=command.kind,
+                    response=response,
+                    context_key=daily_time,
+                )
+            return response
         if command.kind == "reset":
             workspace = self._get_workspace()
             self.store.clear_session(
@@ -421,6 +452,36 @@ class ChatService:
             )
             lines.append(provider.description)
         lines.append("Use `/cli use <provider>` to switch the current agent workspace.")
+        return "\n".join(lines)
+
+    def _render_archive_status(self) -> str:
+        if self.archive_service is None:
+            return "Archive service is disabled."
+        lines = [
+            "Archive status:",
+            "Scope: all agent workspaces",
+            "Archive dir: {}".format(self.archive_service.archive_root),
+        ]
+        if self.archive_service.daily_time:
+            lines.append(
+                "Schedule: daily at {} (server local time)".format(
+                    self.archive_service.daily_time
+                )
+            )
+        else:
+            lines.append(
+                "Schedule: every {}s".format(self.archive_service.interval_seconds)
+            )
+        if self.archive_service.next_run_at is not None:
+            lines.append("Next run at: {}".format(int(self.archive_service.next_run_at)))
+        if self.archive_service.last_success_at is not None:
+            lines.append(
+                "Last success at: {}".format(int(self.archive_service.last_success_at))
+            )
+        else:
+            lines.append("Last success at: (never)")
+        if self.archive_service.last_error:
+            lines.extend(["Last error:", self.archive_service.last_error])
         return "\n".join(lines)
 
     def _render_task_list(self, tasks: Iterable[WorkspaceTaskRecord]) -> str:
