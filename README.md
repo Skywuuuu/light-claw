@@ -160,6 +160,7 @@ src/light_claw/
   runtime_services.py
   server.py
   store.py
+  task_progress.py
   task_executor.py
   workspaces.py
 ```
