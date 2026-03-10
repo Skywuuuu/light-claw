@@ -211,6 +211,62 @@ class StoreTest(unittest.TestCase):
             self.assertEqual(latest_completed.result_excerpt, "All good")
             store.close()
 
+    def test_recover_orphaned_task_runs_marks_run_failed_and_releases_task(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = StateStore(Path(tmp_dir) / "state.db")
+            store.create_workspace(
+                WorkspaceRecord(
+                    agent_id="agent-a",
+                    owner_id="ou_1",
+                    workspace_id="default",
+                    name="Default",
+                    path=Path(tmp_dir) / "default",
+                    cli_provider="codex",
+                    created_at=0.0,
+                    updated_at=0.0,
+                )
+            )
+            task = store.create_workspace_task(
+                "agent-a",
+                "ou_1",
+                "default",
+                "Recover me",
+                next_run_at=123.0,
+            )
+            run = store.claim_workspace_task(
+                "agent-a",
+                "ou_1",
+                "default",
+                task.task_id,
+                trigger_source="cron",
+            )
+            self.assertIsNotNone(run)
+
+            recovered = store.recover_orphaned_task_runs("Recovered on startup.")
+            self.assertEqual(recovered, 1)
+
+            latest_run = store.get_latest_task_run("agent-a", "ou_1", "default", task.task_id)
+            self.assertIsNotNone(latest_run)
+            self.assertEqual(latest_run.status, "failed")
+            self.assertEqual(latest_run.error_message, "Recovered on startup.")
+            self.assertIsNotNone(latest_run.finished_at)
+
+            updated_task = store.get_workspace_task("agent-a", "ou_1", "default", task.task_id)
+            self.assertIsNotNone(updated_task)
+            self.assertEqual(updated_task.status, "failed")
+            self.assertEqual(updated_task.last_error_message, "Recovered on startup.")
+            self.assertEqual(updated_task.next_run_at, 123.0)
+
+            reclaimed = store.claim_workspace_task(
+                "agent-a",
+                "ou_1",
+                "default",
+                task.task_id,
+                trigger_source="cron",
+            )
+            self.assertIsNotNone(reclaimed)
+            store.close()
+
     def test_scheduled_tasks_can_be_created_listed_and_removed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             store = StateStore(Path(tmp_dir) / "state.db")

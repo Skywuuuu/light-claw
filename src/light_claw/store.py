@@ -1138,6 +1138,75 @@ class StateStore:
             result_excerpt=result_excerpt,
         )
 
+    def recover_orphaned_task_runs(
+        self,
+        error_message: str = "Recovered orphaned task run from a previous process.",
+    ) -> int:
+        finished_at = time.time()
+        with self._lock:
+            rows = self._db.execute(
+                """
+                SELECT
+                    run.agent_id,
+                    run.owner_id,
+                    run.workspace_id,
+                    run.task_id,
+                    run.run_id,
+                    task.next_run_at
+                FROM task_run run
+                JOIN workspace_task task
+                  ON task.agent_id = run.agent_id
+                 AND task.owner_id = run.owner_id
+                 AND task.workspace_id = run.workspace_id
+                 AND task.task_id = run.task_id
+                WHERE run.status = ?
+                """,
+                (TASK_STATUS_RUNNING,),
+            ).fetchall()
+            for row in rows:
+                self._db.execute(
+                    """
+                    UPDATE task_run
+                    SET status = ?,
+                        finished_at = ?,
+                        error_message = ?,
+                        result_excerpt = NULL
+                    WHERE agent_id = ? AND run_id = ?
+                    """,
+                    (
+                        TASK_STATUS_FAILED,
+                        finished_at,
+                        error_message,
+                        str(row["agent_id"]),
+                        str(row["run_id"]),
+                    ),
+                )
+                self._db.execute(
+                    """
+                    UPDATE workspace_task
+                    SET status = ?,
+                        last_run_at = ?,
+                        next_run_at = ?,
+                        last_error_message = ?,
+                        last_result_excerpt = NULL,
+                        updated_at = ?
+                    WHERE agent_id = ? AND owner_id = ? AND workspace_id = ? AND task_id = ?
+                    """,
+                    (
+                        TASK_STATUS_FAILED,
+                        finished_at,
+                        row["next_run_at"],
+                        error_message,
+                        finished_at,
+                        str(row["agent_id"]),
+                        str(row["owner_id"]),
+                        str(row["workspace_id"]),
+                        str(row["task_id"]),
+                    ),
+                )
+            self._db.commit()
+        return len(rows)
+
     def update_scheduled_task_run(
         self,
         agent_id: str,

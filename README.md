@@ -334,6 +334,7 @@ Execution model:
 - background task runs keep lightweight progress notes under `memory/tasks/<task_id>.md`
 - cron-triggered runs automatically review `memory/` and the task progress note before continuing
 - cron schedules stop themselves after repeated no-change results so they do not keep reporting the same completion forever
+- service startup recovers orphaned `running` task runs from a previous process so cron and heartbeat can claim those tasks again instead of spinning forever
 
 ## Notes
 

@@ -203,6 +203,9 @@ class RuntimeHealth(ChatObserver):
 
 def build_services(settings: Settings) -> RuntimeServices:
     store = StateStore(settings.database_path)
+    recovered_runs = store.recover_orphaned_task_runs()
+    if recovered_runs:
+        log.warning("recovered %s orphaned task runs during startup", recovered_runs)
     store.prune_inbound_messages(settings.inbound_message_ttl_seconds)
     workspace_manager = WorkspaceManager(settings.workspaces_dir)
     health = RuntimeHealth(settings)
