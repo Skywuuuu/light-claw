@@ -5,7 +5,7 @@ from typing import Optional
 from .archive import WorkspaceArchiveService
 from .commands import Command, help_text
 from .config import AgentSettings, Settings
-from .feishu import FeishuClient
+from .integrations.feishu import FeishuClient
 from .models import FeishuInboundMessage, WorkspaceRecord
 from .providers import CliRunnerRegistry
 from .store import StateStore

@@ -7,7 +7,7 @@ from .archive import WorkspaceArchiveService
 from .chat_commands import ChatCommandHandler
 from .commands import parse_command
 from .config import AgentSettings, Settings
-from .feishu import FeishuClient
+from .integrations.feishu import FeishuClient
 from .models import FeishuInboundMessage
 from .providers import CliRunnerRegistry
 from .store import StateStore

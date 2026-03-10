@@ -7,7 +7,7 @@ from typing import Callable, Iterable, Optional
 
 from .commands import Command
 from .config import AgentSettings, Settings
-from .feishu import FeishuClient
+from .integrations.feishu import FeishuClient
 from .models import (
     SCHEDULE_KIND_INTERVAL,
     TASK_STATUS_CANCELLED,
