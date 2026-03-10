@@ -144,6 +144,7 @@ src/light_claw/
   __init__.py
   __main__.py
   chat.py
+  chat_commands.py
   cli_runners.py
   codex_runner.py
   commands.py
