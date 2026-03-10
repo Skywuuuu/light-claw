@@ -131,6 +131,7 @@ How the pieces connect:
 - Feishu messages enter through webhook mode or long-connection mode, but both paths end up in the same `ChatService`.
 - `ChatService` either handles a slash command immediately or forwards the prompt to `TaskExecutor`.
 - `TaskExecutor` is the single execution path for foreground chat, heartbeat-resumed tasks, and cron-triggered tasks, so session reuse, observations, memory guidance, and CLI execution all stay in one place.
+- `server.py` now stays focused on FastAPI entrypoints and Feishu request handling, while `runtime_services.py` owns runtime wiring, health state, and background service lifecycle.
 - `StateStore` in SQLite is the shared coordination layer for the single workspace bound to each agent, resumed CLI sessions, background task definitions, run history, schedules, and inbound dedupe.
 - Each workspace directory is both execution context and long-term memory: the CLI runs inside it, `memory/` persists user/project knowledge, and `.light-claw/` stores internal state such as observations and schedule no-change tracking.
 - Background services do not execute work themselves; they only decide when work should run, then call back into the same `TaskExecutor`.
@@ -153,6 +154,7 @@ src/light_claw/
   feishu.py
   heartbeat.py
   models.py
+  runtime_services.py
   server.py
   store.py
   task_executor.py
