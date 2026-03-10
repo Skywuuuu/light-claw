@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 
 from .config import AgentSettings, Settings
-from .feishu import FeishuClient
+from .integrations.feishu import FeishuClient
 from .models import (
     TASK_STATUS_FAILED,
     TASK_STATUS_RUNNING,

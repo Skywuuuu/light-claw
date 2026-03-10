@@ -10,8 +10,11 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .config import AgentSettings, APP_NAME, Settings
-from .feishu import parse_inbound_message, verify_token
-from .feishu_long_connection import FeishuLongConnectionClient
+from .integrations.feishu import (
+    parse_inbound_message,
+    verify_token,
+)
+from .integrations.feishu_long_connection import FeishuLongConnectionClient
 from .runtime_services import (
     RuntimeHealth,
     RuntimeServices,
