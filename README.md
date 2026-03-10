@@ -146,6 +146,7 @@ src/light_claw/
   __main__.py
   chat.py
   chat_commands.py
+  task_commands.py
   commands.py
   config.py
   cron.py
