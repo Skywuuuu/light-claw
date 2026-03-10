@@ -32,18 +32,13 @@ def parse_command(content: str) -> Optional[Command]:
             target = parts[2].strip() if len(parts) > 2 else ""
             return Command(kind="cli_use", argument=target or None)
         return Command(kind="invalid", argument=raw)
-    if cmd == "/workspace":
+    if cmd == "/archive":
         sub = parts[1].lower() if len(parts) > 1 else "current"
-        if sub in {"list", "ls"}:
-            return Command(kind="workspace_list")
-        if sub in {"current", "show"}:
-            return Command(kind="workspace_current")
-        if sub in {"create", "new"}:
-            name = " ".join(parts[2:]).strip()
-            return Command(kind="workspace_create", argument=name or None)
-        if sub in {"use", "switch"}:
-            target = parts[2].strip() if len(parts) > 2 else ""
-            return Command(kind="workspace_use", argument=target or None)
+        if sub in {"current", "show", "status"}:
+            return Command(kind="archive_current")
+        if sub in {"daily", "at"}:
+            target = " ".join(parts[2:]).strip()
+            return Command(kind="archive_daily", argument=target or None)
         return Command(kind="invalid", argument=raw)
     if cmd == "/task":
         sub = parts[1].lower() if len(parts) > 1 else "list"
@@ -78,13 +73,11 @@ def help_text() -> str:
         [
             "Available commands:",
             "/help",
+            "/archive current",
+            "/archive daily <HH:MM>",
             "/cli list",
             "/cli current",
             "/cli use <provider>",
-            "/workspace list",
-            "/workspace create <name>",
-            "/workspace use <id|index>",
-            "/workspace current",
             "/task list",
             "/task status <id|index>",
             "/task create <prompt>",

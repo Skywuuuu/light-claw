@@ -110,11 +110,7 @@ class CronService:
     async def _execute_schedule(self, schedule: ScheduledTaskRecord) -> None:
         now = time.time()
         next_run_at = compute_next_run_at(schedule, now)
-        workspace = self.store.get_workspace(
-            schedule.agent_id,
-            schedule.owner_id,
-            schedule.workspace_id,
-        )
+        workspace = self.store.get_agent_workspace(schedule.agent_id)
         task = self.store.get_workspace_task(
             schedule.agent_id,
             schedule.owner_id,

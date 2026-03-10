@@ -4,12 +4,12 @@
 
 - Feishu webhook ingress + outbound reply API
 - Persistent workspace/session state in SQLite
-- One isolated workspace per agent/work context
+- One persistent workspace per agent
 - One Feishu app/bot per agent
 - One long-connection client per agent in a single lightweight process
-- Per-workspace CLI provider selection
+- One CLI provider selection per agent workspace
 - Each workspace is bootstrapped with `AGENTS.md`, `memory/`, and agent-local tool profile files
-- CLI conversations resume on the same Feishu conversation until `/reset` or workspace switch
+- CLI conversations resume on the same Feishu conversation until `/reset`
 - Workspace-scoped background tasks with SQLite-backed schedules and run history
 
 ## What this MVP supports
@@ -20,26 +20,122 @@
 - Pluggable CLI provider registry, with Codex implemented and reserved slots for Claude Code and custom CLIs
 - One shared runtime with multiple isolated agents:
   - independent Feishu app credentials
-  - independent workspaces
+  - one dedicated workspace per agent
   - independent Codex sessions
   - independent local skills/MCP profile files
-- Workspace commands from Feishu:
+- Commands from Feishu:
   - `/cli list`
   - `/cli current`
   - `/cli use <provider>`
+  - `/archive current`
+  - `/archive daily <HH:MM>`
   - `/help`
   - `/task list`
-- `/task status <id|index>`
+  - `/task status <id|index>`
   - `/task create <prompt>`
   - `/task cancel <id|index>`
   - `/cron list`
   - `/cron every <seconds> <task_id>`
   - `/cron remove <id|index>`
-  - `/workspace list`
-  - `/workspace create <name>`
-  - `/workspace use <id|index>`
-  - `/workspace current`
   - `/reset`
+
+## Architecture
+
+```mermaid
+flowchart TB
+  user[User in Feishu]
+
+  subgraph ingress[Feishu ingress + replies]
+    webhook[Webhook events\nPOST /feishu/events]
+    longconn[Long-connection clients\none per agent]
+    reply_api[Feishu reply API]
+  end
+
+  subgraph runtime[light-claw runtime]
+    app[FastAPI app\nserver.py]
+    health[RuntimeHealth\n/livez /readyz /healthz]
+
+    subgraph agent_runtime[Per-agent runtime]
+      chat[ChatService]
+      commands[Slash commands\n/cli /task /cron /reset]
+      taskexec[TaskExecutor]
+      registry[CliRunnerRegistry]
+      feishu_client[FeishuClient]
+    end
+
+    subgraph background[Background loops]
+      heartbeat[WorkspaceHeartbeatService]
+      cron[CronService]
+      archive[WorkspaceArchiveService]
+    end
+  end
+
+  subgraph state[Persistent state + local files]
+    store[StateStore on SQLite\nworkspace / conversation_state / conversation_session /\nworkspace_task / task_run / scheduled_task / inbound_message]
+    workspace_dir[Workspace directory\nAGENTS.md / README.md / memory/ / .light-claw/]
+    observations[Session observations + schedule state\n.light-claw/session-observations/\n.light-claw/scheduled-tasks/]
+    progress[Task progress notes\nmemory/tasks/task-id.md]
+    archive_dir[Archive mirror\n../light-claw-data/]
+  end
+
+  subgraph cli[Local CLI execution]
+    provider[Selected provider per workspace]
+    codex[Codex runner\nnew run / resume existing session]
+  end
+
+  user --> webhook
+  user --> longconn
+  webhook --> app
+  longconn --> app
+  app --> health
+  app --> chat
+
+  chat --> commands
+  chat --> taskexec
+  chat --> feishu_client
+  feishu_client --> reply_api
+  reply_api --> user
+
+  commands --> store
+  commands --> workspace_dir
+  commands --> observations
+
+  heartbeat --> store
+  heartbeat --> taskexec
+  cron --> store
+  cron --> taskexec
+  archive --> store
+  archive --> workspace_dir
+  archive --> archive_dir
+
+  taskexec --> store
+  taskexec --> workspace_dir
+  taskexec --> observations
+  taskexec --> progress
+  taskexec --> registry
+  taskexec --> feishu_client
+
+  registry --> provider
+  provider --> codex
+  codex --> workspace_dir
+  codex --> taskexec
+
+  store --> chat
+  store --> taskexec
+  store --> heartbeat
+  store --> cron
+```
+
+How the pieces connect:
+
+- Feishu messages enter through webhook mode or long-connection mode, but both paths end up in the same `ChatService`.
+- `ChatService` either handles a slash command immediately or forwards the prompt to `TaskExecutor`.
+- `TaskExecutor` is the single execution path for foreground chat, heartbeat-resumed tasks, and cron-triggered tasks, so session reuse, observations, memory guidance, and CLI execution all stay in one place.
+- `StateStore` in SQLite is the shared coordination layer for the single workspace bound to each agent, resumed CLI sessions, background task definitions, run history, schedules, and inbound dedupe.
+- Each workspace directory is both execution context and long-term memory: the CLI runs inside it, `memory/` persists user/project knowledge, and `.light-claw/` stores internal state such as observations and schedule no-change tracking.
+- Background services do not execute work themselves; they only decide when work should run, then call back into the same `TaskExecutor`.
+- The selected CLI provider is stored on the agent workspace; today that means Codex, but the registry keeps the runtime path adapter-based instead of hardcoded.
+- The archive service is deliberately separate from task execution: it mirrors every known agent workspace for backup/debugging, but it does not participate in prompt construction.
 
 ## Project layout
 
@@ -48,6 +144,7 @@ src/light_claw/
   __init__.py
   __main__.py
   chat.py
+  chat_commands.py
   cli_runners.py
   codex_runner.py
   commands.py
@@ -69,12 +166,10 @@ Runtime data is stored under `.data/` by default:
   light-claw.db
   workspaces/
     <agent>/
-      <user>/
-        <workspace-id>/
-          AGENTS.md
-          README.md
-          .light-claw/
-          memory/
+      AGENTS.md
+      README.md
+      .light-claw/
+      memory/
 ```
 
 Workspace content is also archived to a sibling `light-claw-data/` directory by default:
@@ -83,15 +178,13 @@ Workspace content is also archived to a sibling `light-claw-data/` directory by 
 ../light-claw-data/
   workspaces/
     <agent>/
-      <user>/
-        <workspace-id>/
-          AGENTS.md
-          README.md
-          .light-claw/
-          memory/
+      AGENTS.md
+      README.md
+      .light-claw/
+      memory/
 ```
 
-The service performs one archive sync during startup and then repeats every 12 hours.
+The service performs one archive sync during startup and then repeats every 12 hours by default. You can also switch it to a fixed daily backup time with `/archive daily <HH:MM>`, which is stored in SQLite and applied to all agent workspaces.
 
 ## Setup
 
@@ -202,6 +295,8 @@ The selected CLI runs inside the selected workspace, so the workspace instructio
 
 `light-claw` also keeps a small per-session observation queue in the workspace. The next prompt for that conversation prepends any queued observations, such as workspace file changes, mutating command results, background task updates, and previous runtime failures. Workspace file changes are still computed from the last recorded snapshot, but they now flow through the same observation path as the other session events.
 
+Archive control stays global instead of becoming a background task. `/archive current` shows the active archive schedule, and `/archive daily <HH:MM>` switches the archive loop to one backup per day at that server-local time. The archive loop still does one sync on startup, and the configured daily time applies to every known agent workspace.
+
 Each configured agent maps to:
 
 - one Feishu app/bot
@@ -233,13 +328,15 @@ Minimal task commands:
 
 Execution model:
 
-- normal chat messages still run immediately in the current workspace
+- normal chat messages still run immediately in the agent's single workspace
 - `TaskExecutor` reuses the same CLI runner abstraction for chat, cron, and heartbeat-triggered runs
+- `/task create` acknowledges the task immediately and also kicks off the first background run right away instead of waiting for the next heartbeat tick
 - `WorkspaceHeartbeatService` periodically resumes running workspace tasks
 - `CronService` triggers scheduled task runs and records the next due time in SQLite
 - background task runs keep lightweight progress notes under `memory/tasks/<task_id>.md`
 - cron-triggered runs automatically review `memory/` and the task progress note before continuing
 - cron schedules stop themselves after repeated no-change results so they do not keep reporting the same completion forever
+- service startup recovers orphaned `running` task runs from a previous process so cron and heartbeat can claim those tasks again instead of spinning forever
 
 ## Notes
 
@@ -250,7 +347,7 @@ Execution model:
 - The runtime prefers `LIGHT_CLAW_SANDBOX`; it still accepts legacy `CODEX_CLAW_SANDBOX` and `CODEX_SANDBOX`, and maps host sandbox values like `workspace-write` to a safe Codex CLI mode.
 - The default SQLite path is `.data/light-claw.db`; if `.data/codex-claw.db` already exists, the runtime keeps using it automatically.
 - Workspace archives default to `../light-claw-data/workspaces`, with one sync at startup and then every 12 hours.
-- `DEFAULT_CLI_PROVIDER` controls the provider used for newly created workspaces.
+- `DEFAULT_CLI_PROVIDER` controls the provider used for newly created agent workspaces.
 - `uv sync` creates and manages the project's virtual environment automatically. Use `uv run ...` for local commands.
 
 ## systemd

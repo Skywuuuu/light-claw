@@ -11,7 +11,6 @@ from .config import DEFAULT_AGENT_ID
 from .models import (
     TASK_STATUS_FAILED,
     TASK_STATUS_RUNNING,
-    ConversationState,
     ScheduledTaskRecord,
     TaskRunRecord,
     WorkspaceRecord,
@@ -94,6 +93,11 @@ TASK_RUN_COLUMNS = {
     "finished_at",
     "error_message",
     "result_excerpt",
+}
+APP_SETTING_COLUMNS = {
+    "key",
+    "value",
+    "updated_at",
 }
 
 
@@ -259,6 +263,12 @@ class StateStore:
                 PRIMARY KEY(agent_id, run_id)
             );
 
+            CREATE TABLE IF NOT EXISTS app_setting (
+                key TEXT NOT NULL PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at REAL NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_workspace_task_lookup
             ON workspace_task(agent_id, owner_id, workspace_id, updated_at);
 
@@ -406,9 +416,40 @@ class StateStore:
             except sqlite3.IntegrityError:
                 return False
 
-    def list_workspaces(self, agent_id: str, owner_id: str) -> List[WorkspaceRecord]:
+    def get_app_setting(self, key: str) -> Optional[str]:
         with self._lock:
-            rows = self._db.execute(
+            row = self._db.execute(
+                """
+                SELECT value
+                FROM app_setting
+                WHERE key = ?
+                """,
+                (key,),
+            ).fetchone()
+        if row is None:
+            return None
+        return str(row["value"])
+
+    def set_app_setting(self, key: str, value: str) -> str:
+        now = time.time()
+        with self._lock:
+            self._db.execute(
+                """
+                INSERT INTO app_setting(key, value, updated_at)
+                VALUES(?, ?, ?)
+                ON CONFLICT(key)
+                DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+                """,
+                (key, value, now),
+            )
+            self._db.commit()
+        return value
+
+    def get_agent_workspace(self, agent_id: str) -> Optional[WorkspaceRecord]:
+        with self._lock:
+            row = self._db.execute(
                 """
                 SELECT
                     agent_id,
@@ -420,12 +461,13 @@ class StateStore:
                     created_at,
                     updated_at
                 FROM workspace
-                WHERE agent_id = ? AND owner_id = ?
-                ORDER BY created_at ASC, workspace_id ASC
+                WHERE agent_id = ?
+                ORDER BY updated_at DESC, created_at DESC, workspace_id ASC
+                LIMIT 1
                 """,
-                (agent_id, owner_id),
-            ).fetchall()
-        return [self._row_to_workspace(row) for row in rows]
+                (agent_id,),
+            ).fetchone()
+        return self._row_to_workspace(row) if row else None
 
     def list_all_workspaces(self) -> List[WorkspaceRecord]:
         with self._lock:
@@ -441,35 +483,18 @@ class StateStore:
                     created_at,
                     updated_at
                 FROM workspace
-                ORDER BY agent_id ASC, owner_id ASC, created_at ASC, workspace_id ASC
+                ORDER BY agent_id ASC, updated_at DESC, created_at DESC, workspace_id ASC
                 """
             ).fetchall()
-        return [self._row_to_workspace(row) for row in rows]
-
-    def get_workspace(
-        self,
-        agent_id: str,
-        owner_id: str,
-        workspace_id: str,
-    ) -> Optional[WorkspaceRecord]:
-        with self._lock:
-            row = self._db.execute(
-                """
-                SELECT
-                    agent_id,
-                    owner_id,
-                    workspace_id,
-                    name,
-                    path,
-                    cli_provider,
-                    created_at,
-                    updated_at
-                FROM workspace
-                WHERE agent_id = ? AND owner_id = ? AND workspace_id = ?
-                """,
-                (agent_id, owner_id, workspace_id),
-            ).fetchone()
-        return self._row_to_workspace(row) if row else None
+        unique_rows: list[sqlite3.Row] = []
+        seen_agents: set[str] = set()
+        for row in rows:
+            agent_id = str(row["agent_id"])
+            if agent_id in seen_agents:
+                continue
+            seen_agents.add(agent_id)
+            unique_rows.append(row)
+        return [self._row_to_workspace(row) for row in unique_rows]
 
     def create_workspace(self, workspace: WorkspaceRecord) -> WorkspaceRecord:
         now = time.time()
@@ -532,35 +557,7 @@ class StateStore:
             self._db.commit()
         if cursor.rowcount == 0:
             return None
-        return self.get_workspace(agent_id, owner_id, workspace_id)
-
-    def get_conversation_state(
-        self,
-        agent_id: str,
-        conversation_id: str,
-        owner_id: str,
-    ) -> Optional[ConversationState]:
-        with self._lock:
-            row = self._db.execute(
-                """
-                SELECT
-                    cs.agent_id,
-                    cs.conversation_id,
-                    cs.owner_id,
-                    cs.workspace_id,
-                    sess.session_id,
-                    cs.updated_at
-                FROM conversation_state cs
-                LEFT JOIN conversation_session sess
-                    ON sess.agent_id = cs.agent_id
-                   AND sess.conversation_id = cs.conversation_id
-                   AND sess.owner_id = cs.owner_id
-                   AND sess.workspace_id = cs.workspace_id
-                WHERE cs.agent_id = ? AND cs.conversation_id = ? AND cs.owner_id = ?
-                """,
-                (agent_id, conversation_id, owner_id),
-            ).fetchone()
-        return self._row_to_conversation(row) if row else None
+        return self.get_agent_workspace(agent_id)
 
     def get_workspace_session_id(
         self,
@@ -585,63 +582,6 @@ class StateStore:
             return None
         return str(row["session_id"])
 
-    def set_current_workspace(
-        self,
-        agent_id: str,
-        conversation_id: str,
-        owner_id: str,
-        workspace_id: str,
-    ) -> ConversationState:
-        now = time.time()
-        session_id = None
-        with self._lock:
-            self._db.execute(
-                """
-                INSERT INTO conversation_state(
-                    agent_id,
-                    conversation_id,
-                    owner_id,
-                    workspace_id,
-                    updated_at
-                )
-                VALUES(?, ?, ?, ?, ?)
-                ON CONFLICT(agent_id, conversation_id, owner_id) DO UPDATE SET
-                    workspace_id = excluded.workspace_id,
-                    updated_at = excluded.updated_at
-                """,
-                (agent_id, conversation_id, owner_id, workspace_id, now),
-            )
-            self._db.execute(
-                """
-                UPDATE workspace
-                SET updated_at = ?
-                WHERE agent_id = ? AND owner_id = ? AND workspace_id = ?
-                """,
-                (now, agent_id, owner_id, workspace_id),
-            )
-            row = self._db.execute(
-                """
-                SELECT session_id
-                FROM conversation_session
-                WHERE agent_id = ?
-                  AND conversation_id = ?
-                  AND owner_id = ?
-                  AND workspace_id = ?
-                """,
-                (agent_id, conversation_id, owner_id, workspace_id),
-            ).fetchone()
-            if row and row["session_id"]:
-                session_id = str(row["session_id"])
-            self._db.commit()
-        return ConversationState(
-            agent_id=agent_id,
-            conversation_id=conversation_id,
-            owner_id=owner_id,
-            workspace_id=workspace_id,
-            session_id=session_id,
-            updated_at=now,
-        )
-
     def set_session_id(
         self,
         agent_id: str,
@@ -649,25 +589,9 @@ class StateStore:
         owner_id: str,
         workspace_id: str,
         session_id: str,
-    ) -> ConversationState:
+    ) -> None:
         now = time.time()
         with self._lock:
-            self._db.execute(
-                """
-                INSERT INTO conversation_state(
-                    agent_id,
-                    conversation_id,
-                    owner_id,
-                    workspace_id,
-                    updated_at
-                )
-                VALUES(?, ?, ?, ?, ?)
-                ON CONFLICT(agent_id, conversation_id, owner_id) DO UPDATE SET
-                    workspace_id = excluded.workspace_id,
-                    updated_at = excluded.updated_at
-                """,
-                (agent_id, conversation_id, owner_id, workspace_id, now),
-            )
             self._db.execute(
                 """
                 INSERT INTO conversation_session(
@@ -695,44 +619,17 @@ class StateStore:
                 (now, agent_id, owner_id, workspace_id),
             )
             self._db.commit()
-        return ConversationState(
-            agent_id=agent_id,
-            conversation_id=conversation_id,
-            owner_id=owner_id,
-            workspace_id=workspace_id,
-            session_id=session_id,
-            updated_at=now,
-        )
 
     def clear_session(self, agent_id: str, conversation_id: str, owner_id: str) -> None:
         with self._lock:
-            row = self._db.execute(
-                """
-                SELECT workspace_id
-                FROM conversation_state
-                WHERE agent_id = ? AND conversation_id = ? AND owner_id = ?
-                """,
-                (agent_id, conversation_id, owner_id),
-            ).fetchone()
-            if not row or not row["workspace_id"]:
-                return
             self._db.execute(
                 """
                 DELETE FROM conversation_session
                 WHERE agent_id = ?
                   AND conversation_id = ?
                   AND owner_id = ?
-                  AND workspace_id = ?
                 """,
-                (agent_id, conversation_id, owner_id, row["workspace_id"]),
-            )
-            self._db.execute(
-                """
-                UPDATE conversation_state
-                SET updated_at = ?
-                WHERE agent_id = ? AND conversation_id = ? AND owner_id = ?
-                """,
-                (time.time(), agent_id, conversation_id, owner_id),
+                (agent_id, conversation_id, owner_id),
             )
             self._db.commit()
 
@@ -1241,6 +1138,75 @@ class StateStore:
             result_excerpt=result_excerpt,
         )
 
+    def recover_orphaned_task_runs(
+        self,
+        error_message: str = "Recovered orphaned task run from a previous process.",
+    ) -> int:
+        finished_at = time.time()
+        with self._lock:
+            rows = self._db.execute(
+                """
+                SELECT
+                    run.agent_id,
+                    run.owner_id,
+                    run.workspace_id,
+                    run.task_id,
+                    run.run_id,
+                    task.next_run_at
+                FROM task_run run
+                JOIN workspace_task task
+                  ON task.agent_id = run.agent_id
+                 AND task.owner_id = run.owner_id
+                 AND task.workspace_id = run.workspace_id
+                 AND task.task_id = run.task_id
+                WHERE run.status = ?
+                """,
+                (TASK_STATUS_RUNNING,),
+            ).fetchall()
+            for row in rows:
+                self._db.execute(
+                    """
+                    UPDATE task_run
+                    SET status = ?,
+                        finished_at = ?,
+                        error_message = ?,
+                        result_excerpt = NULL
+                    WHERE agent_id = ? AND run_id = ?
+                    """,
+                    (
+                        TASK_STATUS_FAILED,
+                        finished_at,
+                        error_message,
+                        str(row["agent_id"]),
+                        str(row["run_id"]),
+                    ),
+                )
+                self._db.execute(
+                    """
+                    UPDATE workspace_task
+                    SET status = ?,
+                        last_run_at = ?,
+                        next_run_at = ?,
+                        last_error_message = ?,
+                        last_result_excerpt = NULL,
+                        updated_at = ?
+                    WHERE agent_id = ? AND owner_id = ? AND workspace_id = ? AND task_id = ?
+                    """,
+                    (
+                        TASK_STATUS_FAILED,
+                        finished_at,
+                        row["next_run_at"],
+                        error_message,
+                        finished_at,
+                        str(row["agent_id"]),
+                        str(row["owner_id"]),
+                        str(row["workspace_id"]),
+                        str(row["task_id"]),
+                    ),
+                )
+            self._db.commit()
+        return len(rows)
+
     def update_scheduled_task_run(
         self,
         agent_id: str,
@@ -1321,17 +1287,6 @@ class StateStore:
             path=Path(str(row["path"])),
             cli_provider=str(row["cli_provider"]),
             created_at=float(row["created_at"]),
-            updated_at=float(row["updated_at"]),
-        )
-
-    @staticmethod
-    def _row_to_conversation(row: sqlite3.Row) -> ConversationState:
-        return ConversationState(
-            agent_id=str(row["agent_id"]),
-            conversation_id=str(row["conversation_id"]),
-            owner_id=str(row["owner_id"]),
-            workspace_id=str(row["workspace_id"]) if row["workspace_id"] else None,
-            session_id=str(row["session_id"]) if row["session_id"] else None,
             updated_at=float(row["updated_at"]),
         )
 

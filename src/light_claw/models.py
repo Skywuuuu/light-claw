@@ -27,16 +27,6 @@ class WorkspaceRecord:
 
 
 @dataclass(frozen=True)
-class ConversationState:
-    agent_id: str
-    conversation_id: str
-    owner_id: str
-    workspace_id: Optional[str]
-    session_id: Optional[str]
-    updated_at: float
-
-
-@dataclass(frozen=True)
 class FeishuReplyTarget:
     receive_id: str
     receive_id_type: str

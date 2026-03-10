@@ -4,18 +4,6 @@ from light_claw.commands import help_text, parse_command
 
 
 class CommandsTest(unittest.TestCase):
-    def test_parse_workspace_create(self) -> None:
-        command = parse_command("/workspace create Research Bot")
-        self.assertIsNotNone(command)
-        self.assertEqual(command.kind, "workspace_create")
-        self.assertEqual(command.argument, "Research Bot")
-
-    def test_parse_workspace_use(self) -> None:
-        command = parse_command("/workspace use 2")
-        self.assertIsNotNone(command)
-        self.assertEqual(command.kind, "workspace_use")
-        self.assertEqual(command.argument, "2")
-
     def test_parse_cli_use(self) -> None:
         command = parse_command("/cli use codex")
         self.assertIsNotNone(command)
@@ -38,9 +26,16 @@ class CommandsTest(unittest.TestCase):
         self.assertEqual(cron_command.kind, "cron_every")
         self.assertEqual(cron_command.argument, "60 1")
 
-    def test_help_text_includes_workspace_commands(self) -> None:
+        archive_command = parse_command("/archive daily 03:15")
+        self.assertIsNotNone(archive_command)
+        self.assertEqual(archive_command.kind, "archive_daily")
+        self.assertEqual(archive_command.argument, "03:15")
+
+    def test_help_text_omits_workspace_commands(self) -> None:
         text = help_text()
-        self.assertIn("/workspace list", text)
+        self.assertNotIn("/workspace", text)
+        self.assertIn("/archive current", text)
+        self.assertIn("/archive daily <HH:MM>", text)
         self.assertIn("/cli list", text)
         self.assertIn("/task list", text)
         self.assertIn("/task status <id|index>", text)
