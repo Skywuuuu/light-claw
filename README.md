@@ -329,6 +329,7 @@ Execution model:
 
 - normal chat messages still run immediately in the agent's single workspace
 - `TaskExecutor` reuses the same CLI runner abstraction for chat, cron, and heartbeat-triggered runs
+- `/task create` acknowledges the task immediately and also kicks off the first background run right away instead of waiting for the next heartbeat tick
 - `WorkspaceHeartbeatService` periodically resumes running workspace tasks
 - `CronService` triggers scheduled task runs and records the next due time in SQLite
 - background task runs keep lightweight progress notes under `memory/tasks/<task_id>.md`

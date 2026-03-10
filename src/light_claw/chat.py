@@ -253,7 +253,7 @@ class ChatService:
                     "Task created.",
                     "{} ({})".format(task.title, task.task_id),
                     "Workspace: {} ({})".format(workspace.name, workspace.workspace_id),
-                    "Next run: now",
+                    "First run: starting now",
                 ]
             )
             self._record_command_observation(
@@ -263,7 +263,22 @@ class ChatService:
                 response=response,
                 context_key=task.task_id,
             )
-            return response
+            await self.feishu_client.send_text(message.reply_target, response)
+            self._start_background_task(
+                self.task_executor.execute_workspace_task(
+                    task,
+                    trigger_source="task_create",
+                    reschedule_seconds=(
+                        self.settings.task_heartbeat_interval_seconds
+                        if self.settings.task_heartbeat_enabled
+                        else None
+                    ),
+                    announce_start=False,
+                    deliver_result=True,
+                ),
+                description="task_create {}".format(task.task_id),
+            )
+            return None
         if command.kind == "task_cancel":
             if not command.argument:
                 return "Usage: /task cancel <id|index>"
@@ -436,6 +451,25 @@ class ChatService:
             text=response,
             context_key=normalized_context,
         )
+
+    @staticmethod
+    def _start_background_task(coro, *, description: str) -> None:
+        task = asyncio.create_task(coro)
+        task.add_done_callback(
+            lambda current: ChatService._log_background_task_result(
+                current,
+                description=description,
+            )
+        )
+
+    @staticmethod
+    def _log_background_task_result(task: asyncio.Task[object], *, description: str) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            log.exception("background task failed: %s", description)
 
     def _render_cli_list(self, current_provider_id: str) -> str:
         lines = ["CLI providers:"]

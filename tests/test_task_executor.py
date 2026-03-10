@@ -1,3 +1,4 @@
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
@@ -500,6 +501,72 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn("command_result", injected_prompt)
             self.assertIn("CLI provider updated.", injected_prompt)
             self.assertTrue(injected_prompt.rstrip().endswith("Continue"))
+            store.close()
+
+    async def test_task_create_starts_first_run_immediately(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace_path = Path(tmp_dir) / "default"
+            workspace_path.mkdir(parents=True, exist_ok=True)
+            store = StateStore(Path(tmp_dir) / "state.db")
+            store.create_workspace(
+                WorkspaceRecord(
+                    agent_id="agent-a",
+                    owner_id="ou_1",
+                    workspace_id="default",
+                    name="Default",
+                    path=workspace_path,
+                    cli_provider="codex",
+                    created_at=0.0,
+                    updated_at=0.0,
+                )
+            )
+            runner = _FakeRunner(
+                CliRunResult(session_id="sess-1", answer="first step done", raw_output="")
+            )
+            registry = _FakeRegistry(runner)
+            feishu = _FakeFeishuClient()
+            settings = self._build_settings(tmp_dir)
+            executor = TaskExecutor(
+                settings=settings,
+                agent=self._build_agent(),
+                store=store,
+                cli_registry=registry,
+                feishu_client=feishu,
+            )
+            chat = ChatService(
+                settings=settings,
+                agent=self._build_agent(),
+                store=store,
+                workspace_manager=_FakeWorkspaceManager(),
+                cli_registry=registry,
+                feishu_client=feishu,
+                task_executor=executor,
+            )
+
+            await chat.handle_message(
+                FeishuInboundMessage(
+                    agent_id="agent-a",
+                    bot_app_id="bot-app",
+                    owner_id="ou_1",
+                    conversation_id="conv_1",
+                    message_id="msg-1",
+                    message_type="text",
+                    content="/task create Keep improving",
+                    reply_target=FeishuReplyTarget("ou_1", "open_id"),
+                )
+            )
+            await asyncio.sleep(0)
+
+            self.assertIn("Task created.", feishu.messages[0][2])
+            self.assertIn("First run: starting now", feishu.messages[0][2])
+            self.assertEqual(runner.calls[0][2], None)
+            self.assertTrue(runner.calls[0][0].rstrip().endswith("Keep improving"))
+
+            tasks = store.list_workspace_tasks("agent-a", "ou_1", "default")
+            self.assertEqual(len(tasks), 1)
+            self.assertEqual(tasks[0].status, "running")
+            self.assertIsNotNone(tasks[0].next_run_at)
+            self.assertIn("first step done", feishu.messages[-1][2])
             store.close()
 
     async def test_archive_daily_command_updates_backup_schedule(self) -> None:
