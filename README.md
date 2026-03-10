@@ -168,6 +168,7 @@ src/light_claw/
   server.py
   session_observations.py
   store.py
+  store_records.py
   task_progress.py
   task_executor.py
   workspaces.py
