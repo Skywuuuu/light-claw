@@ -16,6 +16,12 @@ from .models import (
     WorkspaceRecord,
     WorkspaceTaskRecord,
 )
+from .store_records import (
+    row_to_scheduled_task,
+    row_to_task_run,
+    row_to_workspace,
+    row_to_workspace_task,
+)
 
 
 WORKSPACE_COLUMNS = {
@@ -467,7 +473,7 @@ class StateStore:
                 """,
                 (agent_id,),
             ).fetchone()
-        return self._row_to_workspace(row) if row else None
+        return row_to_workspace(row) if row else None
 
     def list_all_workspaces(self) -> List[WorkspaceRecord]:
         with self._lock:
@@ -494,7 +500,7 @@ class StateStore:
                 continue
             seen_agents.add(agent_id)
             unique_rows.append(row)
-        return [self._row_to_workspace(row) for row in unique_rows]
+        return [row_to_workspace(row) for row in unique_rows]
 
     def create_workspace(self, workspace: WorkspaceRecord) -> WorkspaceRecord:
         now = time.time()
@@ -734,7 +740,7 @@ class StateStore:
                 """,
                 (agent_id, owner_id, workspace_id),
             ).fetchall()
-        return [self._row_to_workspace_task(row) for row in rows]
+        return [row_to_workspace_task(row) for row in rows]
 
     def list_due_workspace_tasks(
         self,
@@ -752,7 +758,7 @@ class StateStore:
                 """,
                 (TASK_STATUS_RUNNING, TASK_STATUS_FAILED, max_next_run_at),
             ).fetchall()
-        return [self._row_to_workspace_task(row) for row in rows]
+        return [row_to_workspace_task(row) for row in rows]
 
     def get_workspace_task(
         self,
@@ -770,7 +776,7 @@ class StateStore:
                 """,
                 (agent_id, owner_id, workspace_id, task_id),
             ).fetchone()
-        return self._row_to_workspace_task(row) if row else None
+        return row_to_workspace_task(row) if row else None
 
     def get_latest_task_run(
         self,
@@ -790,7 +796,7 @@ class StateStore:
                 """,
                 (agent_id, owner_id, workspace_id, task_id),
             ).fetchone()
-        return self._row_to_task_run(row) if row else None
+        return row_to_task_run(row) if row else None
 
     def update_workspace_task(
         self,
@@ -816,7 +822,7 @@ class StateStore:
             ).fetchone()
             if row is None:
                 return None
-            current = self._row_to_workspace_task(row)
+            current = row_to_workspace_task(row)
             self._db.execute(
                 """
                 UPDATE workspace_task
@@ -929,7 +935,7 @@ class StateStore:
                 """,
                 (agent_id, owner_id, workspace_id),
             ).fetchall()
-        return [self._row_to_scheduled_task(row) for row in rows]
+        return [row_to_scheduled_task(row) for row in rows]
 
     def list_due_scheduled_tasks(self, max_next_run_at: float) -> List[ScheduledTaskRecord]:
         with self._lock:
@@ -944,7 +950,7 @@ class StateStore:
                 """,
                 (max_next_run_at,),
             ).fetchall()
-        return [self._row_to_scheduled_task(row) for row in rows]
+        return [row_to_scheduled_task(row) for row in rows]
 
     def remove_scheduled_task(
         self,
@@ -1085,7 +1091,7 @@ class StateStore:
             ).fetchone()
             if row is None:
                 return None
-            run = self._row_to_task_run(row)
+            run = row_to_task_run(row)
             self._db.execute(
                 """
                 UPDATE task_run
@@ -1231,7 +1237,7 @@ class StateStore:
             ).fetchone()
             if row is None:
                 return None
-            current = self._row_to_scheduled_task(row)
+            current = row_to_scheduled_task(row)
             new_enabled = current.enabled if enabled is None else enabled
             self._db.execute(
                 """
@@ -1276,99 +1282,3 @@ class StateStore:
     def close(self) -> None:
         with self._lock:
             self._db.close()
-
-    @staticmethod
-    def _row_to_workspace(row: sqlite3.Row) -> WorkspaceRecord:
-        return WorkspaceRecord(
-            agent_id=str(row["agent_id"]),
-            owner_id=str(row["owner_id"]),
-            workspace_id=str(row["workspace_id"]),
-            name=str(row["name"]),
-            path=Path(str(row["path"])),
-            cli_provider=str(row["cli_provider"]),
-            created_at=float(row["created_at"]),
-            updated_at=float(row["updated_at"]),
-        )
-
-    @staticmethod
-    def _row_to_workspace_task(row: sqlite3.Row) -> WorkspaceTaskRecord:
-        return WorkspaceTaskRecord(
-            agent_id=str(row["agent_id"]),
-            owner_id=str(row["owner_id"]),
-            workspace_id=str(row["workspace_id"]),
-            task_id=str(row["task_id"]),
-            title=str(row["title"]),
-            prompt=str(row["prompt"]),
-            status=str(row["status"]),
-            notify_conversation_id=(
-                str(row["notify_conversation_id"])
-                if row["notify_conversation_id"]
-                else None
-            ),
-            notify_owner_id=str(row["notify_owner_id"]) if row["notify_owner_id"] else None,
-            notify_receive_id=(
-                str(row["notify_receive_id"]) if row["notify_receive_id"] else None
-            ),
-            notify_receive_id_type=(
-                str(row["notify_receive_id_type"])
-                if row["notify_receive_id_type"]
-                else None
-            ),
-            last_run_at=float(row["last_run_at"]) if row["last_run_at"] else None,
-            next_run_at=float(row["next_run_at"]) if row["next_run_at"] else None,
-            last_error_message=(
-                str(row["last_error_message"]) if row["last_error_message"] else None
-            ),
-            last_result_excerpt=(
-                str(row["last_result_excerpt"])
-                if row["last_result_excerpt"]
-                else None
-            ),
-            created_at=float(row["created_at"]),
-            updated_at=float(row["updated_at"]),
-        )
-
-    @staticmethod
-    def _row_to_scheduled_task(row: sqlite3.Row) -> ScheduledTaskRecord:
-        return ScheduledTaskRecord(
-            agent_id=str(row["agent_id"]),
-            owner_id=str(row["owner_id"]),
-            workspace_id=str(row["workspace_id"]),
-            schedule_id=str(row["schedule_id"]),
-            task_id=str(row["task_id"]),
-            kind=str(row["kind"]),
-            interval_seconds=(
-                int(row["interval_seconds"]) if row["interval_seconds"] is not None else None
-            ),
-            cron_expr=str(row["cron_expr"]) if row["cron_expr"] else None,
-            enabled=bool(row["enabled"]),
-            next_run_at=float(row["next_run_at"]) if row["next_run_at"] else None,
-            last_run_at=float(row["last_run_at"]) if row["last_run_at"] else None,
-            last_error_message=(
-                str(row["last_error_message"]) if row["last_error_message"] else None
-            ),
-            created_at=float(row["created_at"]),
-            updated_at=float(row["updated_at"]),
-        )
-
-    @staticmethod
-    def _row_to_task_run(row: sqlite3.Row) -> TaskRunRecord:
-        return TaskRunRecord(
-            agent_id=str(row["agent_id"]),
-            owner_id=str(row["owner_id"]),
-            workspace_id=str(row["workspace_id"]),
-            task_id=str(row["task_id"]),
-            run_id=str(row["run_id"]),
-            trigger_source=str(row["trigger_source"]),
-            status=str(row["status"]),
-            conversation_id=str(row["conversation_id"]) if row["conversation_id"] else None,
-            conversation_owner_id=(
-                str(row["conversation_owner_id"])
-                if row["conversation_owner_id"]
-                else None
-            ),
-            started_at=float(row["started_at"]),
-            finished_at=float(row["finished_at"]) if row["finished_at"] else None,
-            error_message=str(row["error_message"]) if row["error_message"] else None,
-            result_excerpt=str(row["result_excerpt"]) if row["result_excerpt"] else None,
-        )
