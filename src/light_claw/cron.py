@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from datetime import datetime
-from pathlib import Path
 from typing import Callable, Mapping, Optional
 
 from croniter import croniter
@@ -13,10 +11,10 @@ from croniter import croniter
 from .models import (
     SCHEDULE_KIND_CRON,
     SCHEDULE_KIND_INTERVAL,
-    TASK_STATUS_SUCCEEDED,
     ScheduledTaskRecord,
     WorkspaceRecord,
 )
+from .schedule_state import update_no_change_state
 from .store import StateStore
 from .task_executor import TaskExecutor
 
@@ -173,10 +171,11 @@ class CronService:
             return
         stop_message = None
         if result is not None:
-            stop_message = self._update_no_change_state(
+            stop_message = update_no_change_state(
                 workspace=workspace,
-                schedule=schedule,
+                schedule_id=schedule.schedule_id,
                 result=result,
+                no_change_limit=self.no_change_limit,
             )
         if stop_message is not None:
             self.store.update_scheduled_task_run(
@@ -199,63 +198,3 @@ class CronService:
             last_run_at=now,
             last_error_message=result.error if result is not None else None,
         )
-
-    def _update_no_change_state(
-        self,
-        *,
-        workspace: WorkspaceRecord,
-        schedule: ScheduledTaskRecord,
-        result,
-    ) -> str | None:
-        excerpt = self._result_excerpt(result)
-        path = self._schedule_state_path(workspace, schedule.schedule_id)
-        state = self._load_schedule_state(path)
-        previous_excerpt = str(state.get("last_result_excerpt") or "").strip()
-        if result.status == TASK_STATUS_SUCCEEDED and excerpt:
-            streak = 1 if excerpt != previous_excerpt else int(state.get("streak") or 1) + 1
-        else:
-            streak = 0
-        self._write_schedule_state(
-            path,
-            {
-                "last_result_excerpt": excerpt,
-                "streak": streak,
-                "updated_at": time.time(),
-            },
-        )
-        if streak >= self.no_change_limit:
-            return "Stopped after {} consecutive no-change runs.".format(
-                self.no_change_limit
-            )
-        return None
-
-    @staticmethod
-    def _result_excerpt(result) -> str:
-        raw = result.answer if result.status == TASK_STATUS_SUCCEEDED else (result.error or "")
-        text = str(raw).strip()
-        if len(text) <= 400:
-            return text
-        return text[:400].rstrip() + "..."
-
-    @staticmethod
-    def _schedule_state_path(workspace: WorkspaceRecord, schedule_id: str) -> Path:
-        return workspace.path / ".light-claw" / "scheduled-tasks" / f"{schedule_id}.json"
-
-    @staticmethod
-    def _load_schedule_state(path: Path) -> dict[str, object]:
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {}
-        return payload if isinstance(payload, dict) else {}
-
-    @staticmethod
-    def _write_schedule_state(path: Path, state: dict[str, object]) -> None:
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                json.dumps(state, ensure_ascii=True, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-        except OSError:
-            return

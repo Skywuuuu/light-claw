@@ -163,6 +163,7 @@ src/light_claw/
     codex.py
     registry.py
   runtime_services.py
+  schedule_state.py
   server.py
   session_observations.py
   store.py
