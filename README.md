@@ -159,6 +159,7 @@ src/light_claw/
     registry.py
   runtime_services.py
   server.py
+  session_observations.py
   store.py
   task_progress.py
   task_executor.py
