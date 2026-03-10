@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from light_claw.codex_runner import CodexRunner
+from light_claw.providers import CodexRunner
 
 
 class CodexRunnerTest(unittest.TestCase):

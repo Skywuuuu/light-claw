@@ -6,7 +6,6 @@ import time
 from typing import Iterable, Optional
 
 from .archive import WorkspaceArchiveService
-from .cli_runners import CliRunnerRegistry
 from .commands import Command, help_text
 from .config import AgentSettings, Settings
 from .feishu import FeishuClient
@@ -19,6 +18,7 @@ from .models import (
     WorkspaceRecord,
     WorkspaceTaskRecord,
 )
+from .providers import CliRunnerRegistry
 from .store import StateStore
 from .task_executor import TaskExecutor
 from .workspaces import WorkspaceManager

@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from light_claw.cli_runners import CliRunnerRegistry
+from light_claw.providers import CliRunnerRegistry
 from light_claw.config import Settings
 
 

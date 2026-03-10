@@ -7,13 +7,13 @@ from typing import Any
 
 from .archive import WorkspaceArchiveService
 from .chat import ChatObserver, ChatService
-from .cli_runners import CliRunnerRegistry
 from .config import APP_NAME, AgentSettings, Settings
 from .cron import CronService
 from .feishu import FeishuClient
 from .heartbeat import WorkspaceHeartbeatService
 from .store import StateStore
 from .task_executor import TaskExecutor
+from .providers import CliRunnerRegistry
 from .workspaces import WorkspaceManager
 
 
