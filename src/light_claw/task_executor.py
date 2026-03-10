@@ -8,7 +8,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .cli_runners import CliRunnerError, CliRunnerRegistry
 from .config import AgentSettings, Settings
 from .feishu import FeishuClient
 from .models import (
@@ -20,6 +19,7 @@ from .models import (
     WorkspaceRecord,
     WorkspaceTaskRecord,
 )
+from .providers import CliRunnerError, CliRunnerRegistry
 from .store import StateStore
 
 

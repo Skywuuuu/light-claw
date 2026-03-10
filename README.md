@@ -146,14 +146,16 @@ src/light_claw/
   __main__.py
   chat.py
   chat_commands.py
-  cli_runners.py
-  codex_runner.py
   commands.py
   config.py
   cron.py
   feishu.py
   heartbeat.py
   models.py
+  providers/
+    __init__.py
+    codex.py
+    registry.py
   runtime_services.py
   server.py
   store.py
