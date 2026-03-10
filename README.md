@@ -144,6 +144,7 @@ How the pieces connect:
 src/light_claw/
   __init__.py
   __main__.py
+  archive_sync.py
   chat.py
   chat_commands.py
   task_commands.py
