@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 import httpx
 import lark_oapi as lark
 
-from .base import IMLongConnectionClient
+from .base import BaseCommunicationChannel
 from .models import FeishuInboundMessage, FeishuReplyTarget
 
 if TYPE_CHECKING:
@@ -343,8 +343,10 @@ def parse_post_content(payload: Dict[str, Any]) -> str:
     return "\n".join(lines).strip()
 
 
-class FeishuLongConnectionClient(IMLongConnectionClient):
-    """Bridge Feishu long-connection events into the async chat service."""
+class FeishuLongConnectionClient(BaseCommunicationChannel):
+    """Feishu long-connection channel for inbound IM events."""
+
+    name = "feishu"
 
     def __init__(
         self,
@@ -370,12 +372,12 @@ class FeishuLongConnectionClient(IMLongConnectionClient):
         )
 
     def start(self) -> None:
-        log.info("Starting Feishu long connection client for agent %s", self._agent_id)
-        self._mark_running(True)
+        log.info("Starting Feishu long connection client for agent %s", self.agent_id)
+        self._set_running(True)
         try:
             self._client.start()
         finally:
-            self._mark_running(False)
+            self._set_running(False)
 
     def _build_event_handler(self) -> lark.EventDispatcherHandler:
         return (
@@ -387,10 +389,10 @@ class FeishuLongConnectionClient(IMLongConnectionClient):
     def _handle_message_receive(self, event: lark.im.v1.P2ImMessageReceiveV1) -> None:
         inbound = parse_long_connection_message(
             event,
-            agent_id=self._agent_id,
+            agent_id=self.agent_id,
             bot_app_id=self._app_id,
         )
         if inbound is None:
             log.info("Ignored unsupported Feishu long connection event payload")
             return
-        self._submit_inbound(inbound)
+        self._handle_inbound_message(inbound)

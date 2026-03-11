@@ -1,4 +1,4 @@
-from .base import IMLongConnectionClient
+from .base import BaseCommunicationChannel, IMLongConnectionClient
 from .feishu import (
     FEISHU_API_BASE,
     MAX_TEXT_CHUNK_BYTES,
@@ -17,6 +17,7 @@ from .sender import MessageSender
 
 __all__ = [
     "FEISHU_API_BASE",
+    "BaseCommunicationChannel",
     "IMLongConnectionClient",
     "MAX_TEXT_CHUNK_BYTES",
     "MessageSender",
