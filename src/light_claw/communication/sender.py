@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from .events import ReplyTarget
+from .messages import ReplyTarget
 
 
 class MessageSender(Protocol):
