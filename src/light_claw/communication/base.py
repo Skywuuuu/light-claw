@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from concurrent.futures import Future
 from typing import TYPE_CHECKING, Callable
 
-from .models import FeishuInboundMessage
+from .events import InboundMessage
 
 if TYPE_CHECKING:
     from ..chat import ChatService
@@ -52,7 +52,7 @@ class BaseCommunicationChannel(ABC):
         if self._on_running_change is not None:
             self._on_running_change(self.agent_id, running)
 
-    def _handle_inbound_message(self, inbound: FeishuInboundMessage) -> None:
+    def _handle_inbound_message(self, inbound: InboundMessage) -> None:
         future = asyncio.run_coroutine_threadsafe(
             self._chat_service.handle_message(inbound),
             self._loop,

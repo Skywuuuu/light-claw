@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .archive import WorkspaceArchiveService
-from .communication.models import FeishuInboundMessage
+from .communication.events import InboundMessage
 from .communication.sender import MessageSender
 from .commands import Command, help_text
 from .config import AgentSettings, Settings
@@ -46,7 +46,7 @@ class ChatCommandHandler:
 
     async def handle(
         self,
-        message: FeishuInboundMessage,
+        message: InboundMessage,
         command: Command,
     ) -> Optional[str]:
         if command.kind == "help":
@@ -179,7 +179,7 @@ class ChatCommandHandler:
         self,
         *,
         workspace: WorkspaceRecord,
-        message: FeishuInboundMessage,
+        message: InboundMessage,
         command_kind: str,
         response: str,
         context_key: str | None = None,

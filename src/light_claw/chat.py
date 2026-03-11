@@ -5,7 +5,7 @@ from typing import Dict, Protocol
 
 from .archive import WorkspaceArchiveService
 from .chat_commands import ChatCommandHandler
-from .communication.models import FeishuInboundMessage
+from .communication.events import InboundMessage
 from .communication.sender import MessageSender
 from .commands import parse_command
 from .config import AgentSettings, Settings
@@ -63,7 +63,7 @@ class ChatService:
             archive_service=archive_service,
         )
 
-    async def handle_message(self, message: FeishuInboundMessage) -> None:
+    async def handle_message(self, message: InboundMessage) -> None:
         started_at = asyncio.get_running_loop().time()
         if self.observer is not None:
             self.observer.on_message_received(self.agent.agent_id)
@@ -108,7 +108,7 @@ class ChatService:
             latency_ms=latency_ms,
         )
 
-    async def _handle_prompt(self, message: FeishuInboundMessage) -> str:
+    async def _handle_prompt(self, message: InboundMessage) -> str:
         workspace = self.command_handler.ensure_workspace()
         result = await self.task_executor.execute_prompt(
             workspace=workspace,

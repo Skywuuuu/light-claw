@@ -150,8 +150,8 @@ src/light_claw/
   communication/
     __init__.py
     base.py
+    events.py
     feishu.py
-    models.py
     sender.py
   commands.py
   config.py
