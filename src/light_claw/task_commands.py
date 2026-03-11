@@ -7,7 +7,7 @@ from typing import Callable, Iterable, Optional
 
 from .commands import Command
 from .config import AgentSettings, Settings
-from .integrations.feishu import FeishuClient
+from .message_sender import MessageSender
 from .models import (
     SCHEDULE_KIND_INTERVAL,
     TASK_STATUS_CANCELLED,
@@ -30,14 +30,14 @@ class TaskCommandHandler:
         settings: Settings,
         agent: AgentSettings,
         store: StateStore,
-        feishu_client: FeishuClient,
+        message_sender: MessageSender,
         task_executor: TaskExecutor,
         ensure_workspace: Callable[[], WorkspaceRecord],
     ) -> None:
         self.settings = settings
         self.agent = agent
         self.store = store
-        self.feishu_client = feishu_client
+        self.message_sender = message_sender
         self.task_executor = task_executor
         self.ensure_workspace = ensure_workspace
 
@@ -103,7 +103,7 @@ class TaskCommandHandler:
                 response=response,
                 context_key=task.task_id,
             )
-            await self.feishu_client.send_text(message.reply_target, response)
+            await self.message_sender.send_text(message.reply_target, response)
             self._start_background_task(
                 self.task_executor.execute_workspace_task(
                     task,

@@ -21,7 +21,7 @@ RETRYABLE_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
 log = logging.getLogger("light_claw.feishu")
 
 
-class FeishuClient:
+class FeishuMessageSender:
     def __init__(
         self,
         app_id: str,

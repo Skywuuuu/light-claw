@@ -68,12 +68,15 @@ class _FakeRegistry:
         ]
 
 
-class _FakeFeishuClient:
+class _FakeMessageSender:
     def __init__(self) -> None:
         self.messages = []
 
     async def send_text(self, target, content):
         self.messages.append((target.receive_id, target.receive_id_type, content))
+
+    async def close(self) -> None:
+        return None
 
 
 class _FakeWorkspaceManager:
@@ -159,13 +162,13 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 )
             )
             runner = _FakeRunner(CliRunResult(session_id="sess-1", answer="done", raw_output=""))
-            feishu = _FakeFeishuClient()
+            message_sender = _FakeMessageSender()
             executor = TaskExecutor(
                 settings=self._build_settings(tmp_dir),
                 agent=self._build_agent(),
                 store=store,
                 cli_registry=_FakeRegistry(runner),
-                feishu_client=feishu,
+                message_sender=message_sender,
             )
 
             result = await executor.execute_prompt(
@@ -179,7 +182,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.status, "succeeded")
             self.assertEqual(result.session_id, "sess-1")
             self.assertEqual(store.get_workspace_session_id("agent-a", "conv_1", "ou_1", "default"), "sess-1")
-            self.assertEqual(feishu.messages[-1][2], "done")
+            self.assertEqual(message_sender.messages[-1][2], "done")
             store.close()
 
     async def test_execute_workspace_task_records_run_and_reschedule(self) -> None:
@@ -213,7 +216,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 agent=self._build_agent(),
                 store=store,
                 cli_registry=_FakeRegistry(runner),
-                feishu_client=_FakeFeishuClient(),
+                message_sender=_FakeMessageSender(),
             )
 
             result = await executor.execute_workspace_task(
@@ -256,7 +259,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 agent=self._build_agent(),
                 store=store,
                 cli_registry=_FakeRegistry(runner),
-                feishu_client=_FakeFeishuClient(),
+                message_sender=_FakeMessageSender(),
             )
 
             recorded = executor.record_observation(
@@ -329,7 +332,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 agent=self._build_agent(),
                 store=store,
                 cli_registry=_FakeRegistry(runner),
-                feishu_client=_FakeFeishuClient(),
+                message_sender=_FakeMessageSender(),
             )
 
             await executor.execute_prompt(
@@ -406,7 +409,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 agent=self._build_agent(),
                 store=store,
                 cli_registry=_FakeRegistry(runner),
-                feishu_client=_FakeFeishuClient(),
+                message_sender=_FakeMessageSender(),
             )
 
             result = await executor.execute_workspace_task(
@@ -447,13 +450,13 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 CliRunResult(session_id="sess-1", answer="done", raw_output="")
             )
             registry = _FakeRegistry(runner)
-            feishu = _FakeFeishuClient()
+            message_sender = _FakeMessageSender()
             executor = TaskExecutor(
                 settings=self._build_settings(tmp_dir),
                 agent=self._build_agent(),
                 store=store,
                 cli_registry=registry,
-                feishu_client=feishu,
+                message_sender=message_sender,
             )
             chat = ChatService(
                 settings=self._build_settings(tmp_dir),
@@ -461,7 +464,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 store=store,
                 workspace_manager=_FakeWorkspaceManager(),
                 cli_registry=registry,
-                feishu_client=feishu,
+                message_sender=message_sender,
                 task_executor=executor,
             )
 
@@ -478,7 +481,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 )
             )
 
-            self.assertIn("CLI provider updated.", feishu.messages[-1][2])
+            self.assertIn("CLI provider updated.", message_sender.messages[-1][2])
 
             await chat.handle_message(
                 FeishuInboundMessage(
@@ -524,14 +527,14 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 CliRunResult(session_id="sess-1", answer="first step done", raw_output="")
             )
             registry = _FakeRegistry(runner)
-            feishu = _FakeFeishuClient()
+            message_sender = _FakeMessageSender()
             settings = self._build_settings(tmp_dir)
             executor = TaskExecutor(
                 settings=settings,
                 agent=self._build_agent(),
                 store=store,
                 cli_registry=registry,
-                feishu_client=feishu,
+                message_sender=message_sender,
             )
             chat = ChatService(
                 settings=settings,
@@ -539,7 +542,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 store=store,
                 workspace_manager=_FakeWorkspaceManager(),
                 cli_registry=registry,
-                feishu_client=feishu,
+                message_sender=message_sender,
                 task_executor=executor,
             )
 
@@ -557,8 +560,8 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             )
             await asyncio.sleep(0)
 
-            self.assertIn("Task created.", feishu.messages[0][2])
-            self.assertIn("First run: starting now", feishu.messages[0][2])
+            self.assertIn("Task created.", message_sender.messages[0][2])
+            self.assertIn("First run: starting now", message_sender.messages[0][2])
             self.assertEqual(runner.calls[0][2], None)
             self.assertTrue(runner.calls[0][0].rstrip().endswith("Keep improving"))
 
@@ -566,7 +569,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(tasks), 1)
             self.assertEqual(tasks[0].status, "running")
             self.assertIsNotNone(tasks[0].next_run_at)
-            self.assertIn("first step done", feishu.messages[-1][2])
+            self.assertIn("first step done", message_sender.messages[-1][2])
             store.close()
 
     async def test_archive_daily_command_updates_backup_schedule(self) -> None:
@@ -590,13 +593,13 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 CliRunResult(session_id="sess-1", answer="done", raw_output="")
             )
             registry = _FakeRegistry(runner)
-            feishu = _FakeFeishuClient()
+            message_sender = _FakeMessageSender()
             executor = TaskExecutor(
                 settings=self._build_settings(tmp_dir),
                 agent=self._build_agent(),
                 store=store,
                 cli_registry=registry,
-                feishu_client=feishu,
+                message_sender=message_sender,
             )
             archive_service = WorkspaceArchiveService(
                 store=store,
@@ -609,7 +612,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 store=store,
                 workspace_manager=_FakeWorkspaceManager(),
                 cli_registry=registry,
-                feishu_client=feishu,
+                message_sender=message_sender,
                 task_executor=executor,
                 archive_service=archive_service,
             )
@@ -627,7 +630,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 )
             )
 
-            self.assertIn("Archive schedule updated.", feishu.messages[-1][2])
+            self.assertIn("Archive schedule updated.", message_sender.messages[-1][2])
             self.assertEqual(store.get_app_setting("archive.daily_time"), "03:15")
             self.assertEqual(archive_service.daily_time, "03:15")
             store.close()
