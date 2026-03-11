@@ -24,7 +24,12 @@ log = logging.getLogger("light_claw.communication.feishu")
 
 
 class FeishuCommunicationChannel(BaseCommunicationChannel):
-    """Feishu communication channel for outbound replies and long-connection events."""
+    """Feishu channel for outbound replies and inbound long-connection events.
+
+    The outbound path uses ``send_text()``.
+    The inbound path is event-driven: ``start()`` opens the long connection and
+    Feishu SDK callbacks hand messages to ``_handle_message_receive()``.
+    """
 
     name = "feishu"
 
@@ -39,6 +44,7 @@ class FeishuCommunicationChannel(BaseCommunicationChannel):
         retry_delay_seconds: float = 1.0,
         on_running_change: Callable[[str, bool], None] | None = None,
     ) -> None:
+        """Create one Feishu channel for a single agent."""
         super().__init__(
             agent_id=agent_id,
             on_running_change=on_running_change,
@@ -59,6 +65,7 @@ class FeishuCommunicationChannel(BaseCommunicationChannel):
         )
 
     def start(self) -> None:
+        """Start the Feishu long connection and receive inbound events."""
         self._require_inbound_binding()
         log.info("Starting Feishu long connection client for agent %s", self.agent_id)
         self._set_running(True)
@@ -68,9 +75,11 @@ class FeishuCommunicationChannel(BaseCommunicationChannel):
             self._set_running(False)
 
     async def close(self) -> None:
+        """Close the outbound HTTP client owned by this channel."""
         await self._http_client.aclose()
 
     async def send_text(self, target: ReplyTarget, content: str) -> None:
+        """Send plain text to one Feishu reply target."""
         text = content.strip()
         if not text:
             raise ValueError("Feishu text content is required")
@@ -89,6 +98,13 @@ class FeishuCommunicationChannel(BaseCommunicationChannel):
         msg_type: str,
         content: Dict[str, Any],
     ) -> None:
+        """Send one Feishu message payload after auth and HTTP setup.
+
+        Args:
+            target: The Feishu user or chat that should receive the message.
+            msg_type: The Feishu message type, such as ``text``.
+            content: The Feishu message body that will be JSON-encoded.
+        """
         token = await self._get_tenant_access_token()
         response = await self._post_with_retry(
             FEISHU_API_BASE + "/im/v1/messages",
@@ -107,6 +123,7 @@ class FeishuCommunicationChannel(BaseCommunicationChannel):
             )
 
     async def _get_tenant_access_token(self) -> str:
+        """Return a cached tenant token or fetch a fresh one from Feishu."""
         async with self._token_lock:
             now = asyncio.get_running_loop().time()
             if (
@@ -136,6 +153,7 @@ class FeishuCommunicationChannel(BaseCommunicationChannel):
             return token
 
     async def _post_with_retry(self, url: str, **kwargs: Any) -> httpx.Response:
+        """POST to Feishu and retry on transient HTTP failures."""
         attempts = max(1, self.max_retries)
         last_error: Exception | None = None
         for attempt in range(1, attempts + 1):
@@ -172,6 +190,7 @@ class FeishuCommunicationChannel(BaseCommunicationChannel):
         raise last_error
 
     def _build_event_handler(self) -> lark.EventDispatcherHandler:
+        """Build the Feishu SDK dispatcher for inbound message events."""
         return (
             lark.EventDispatcherHandler.builder("", "")
             .register_p2_im_message_receive_v1(self._handle_message_receive)
@@ -179,6 +198,7 @@ class FeishuCommunicationChannel(BaseCommunicationChannel):
         )
 
     def _handle_message_receive(self, event: lark.im.v1.P2ImMessageReceiveV1) -> None:
+        """Convert one SDK event into an inbound message and hand it off."""
         inbound = parse_long_connection_message(
             event,
             agent_id=self.agent_id,
