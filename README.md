@@ -59,7 +59,7 @@ flowchart TB
       chat[ChatService]
       commands[Slash commands\n/cli /task /cron /reset]
       taskexec[TaskExecutor]
-      registry[CliRunnerRegistry]
+      registry[CliRuntimeRegistry]
       channel[FeishuCommunicationChannel\nsend + long connection]
     end
 
@@ -157,9 +157,9 @@ src/light_claw/
   cron.py
   heartbeat.py
   models.py
-  providers/
+  runtime/
     __init__.py
-    codex.py
+    codex_cli.py
     registry.py
   runtime_services.py
   schedule_state.py

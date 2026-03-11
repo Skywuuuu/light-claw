@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Protocol
 
-from .codex import CodexRunner, CodexRunnerError
 from ..config import AgentSettings, Settings
 from ..models import CliProviderInfo, CliRunResult
+from .codex_cli import CodexCliRuntime
 
 
-class CliRunnerError(RuntimeError):
-    pass
+class CliRuntimeError(RuntimeError):
+    """Raised when a configured CLI runtime cannot be selected or executed."""
 
 
-class CliRunner(Protocol):
+class CliRuntime(Protocol):
     provider_id: str
     display_name: str
 
@@ -27,46 +26,30 @@ class CliRunner(Protocol):
         ...
 
 
-@dataclass
-class CodexCliAdapter:
-    runner: CodexRunner
-    provider_id: str = "codex"
-    display_name: str = "Codex"
+class CliRuntimeRegistry:
+    """Keep track of selectable CLI providers and the concrete runtimes behind them."""
 
-    async def run(
-        self,
-        prompt: str,
-        workspace_dir: Path,
-        session_id: str | None = None,
-        on_activity: Callable[[], None] | None = None,
-    ) -> CliRunResult:
-        try:
-            return await self.runner.run(
-                prompt=prompt,
-                workspace_dir=workspace_dir,
-                session_id=session_id,
-                on_activity=on_activity,
-            )
-        except CodexRunnerError as exc:
-            raise CliRunnerError(str(exc)) from exc
-
-
-class CliRunnerRegistry:
     def __init__(
         self,
         providers: Iterable[CliProviderInfo],
-        runners: Dict[str, CliRunner],
+        runtimes: Dict[str, CliRuntime],
     ) -> None:
         self._providers = {provider.provider_id: provider for provider in providers}
-        self._runners = dict(runners)
+        self._runtimes = dict(runtimes)
 
     @classmethod
     def from_settings(
         cls,
         settings: Settings,
         agent: AgentSettings | None = None,
-    ) -> "CliRunnerRegistry":
-        codex_runner = CodexRunner(
+    ) -> "CliRuntimeRegistry":
+        """Build the runtime registry for one agent.
+
+        Args:
+            settings: Application settings shared across all agents.
+            agent: Optional per-agent overrides for model, sandbox, and search.
+        """
+        codex_runtime = CodexCliRuntime(
             codex_bin=settings.codex_bin,
             sandbox=agent.codex_sandbox if agent else settings.codex_sandbox,
             default_model=agent.codex_model if agent else settings.codex_model,
@@ -76,28 +59,27 @@ class CliRunnerRegistry:
             timeout_per_char_ms=settings.codex_timeout_per_char_ms,
             stall_timeout_seconds=settings.codex_stall_timeout_seconds,
         )
-        codex_adapter = CodexCliAdapter(codex_runner)
         providers = [
             CliProviderInfo(
                 provider_id="codex",
                 display_name="Codex",
-                description="OpenAI Codex CLI adapter.",
+                description="OpenAI Codex CLI runtime.",
                 available=True,
             ),
             CliProviderInfo(
                 provider_id="claude-code",
                 display_name="Claude Code",
-                description="Reserved provider slot for a future Claude Code adapter.",
+                description="Reserved runtime slot for a future Claude Code integration.",
                 available=False,
             ),
             CliProviderInfo(
                 provider_id="custom",
                 display_name="Custom CLI",
-                description="Reserved provider slot for custom CLI adapters.",
+                description="Reserved runtime slot for custom CLI integrations.",
                 available=False,
             ),
         ]
-        return cls(providers=providers, runners={"codex": codex_adapter})
+        return cls(providers=providers, runtimes={"codex": codex_runtime})
 
     def list_providers(self) -> List[CliProviderInfo]:
         return list(self._providers.values())
@@ -107,16 +89,21 @@ class CliRunnerRegistry:
 
     def default_provider_id(self, requested: str) -> str:
         provider_id = requested.strip().lower()
-        if provider_id in self._runners:
+        if provider_id in self._runtimes:
             return provider_id
         return "codex"
 
     def validate_selectable(self, provider_id: str) -> tuple[bool, str]:
+        """Validate whether the requested provider can run today.
+
+        Args:
+            provider_id: Provider id from workspace state or a `/cli use` command.
+        """
         normalized = provider_id.strip().lower()
         provider = self.get_provider(normalized)
         if provider is None:
             return False, "Unknown CLI provider. Use `/cli list`."
-        if normalized not in self._runners:
+        if normalized not in self._runtimes:
             return (
                 False,
                 "{} is reserved but not wired yet. {}".format(
@@ -126,16 +113,21 @@ class CliRunnerRegistry:
             )
         return True, ""
 
-    def get_runner(self, provider_id: str) -> CliRunner:
+    def get_runtime(self, provider_id: str) -> CliRuntime:
+        """Return the concrete runtime for the selected provider id.
+
+        Args:
+            provider_id: Provider id stored on the workspace.
+        """
         normalized = provider_id.strip().lower()
-        runner = self._runners.get(normalized)
-        if runner:
-            return runner
+        runtime = self._runtimes.get(normalized)
+        if runtime:
+            return runtime
         provider = self.get_provider(normalized)
         if provider:
-            raise CliRunnerError(
-                "{} is configured as a provider slot, but no adapter is implemented yet.".format(
+            raise CliRuntimeError(
+                "{} is configured as a provider slot, but no runtime is implemented yet.".format(
                     provider.display_name
                 )
             )
-        raise CliRunnerError("Unknown CLI provider: {}".format(provider_id))
+        raise CliRuntimeError("Unknown CLI provider: {}".format(provider_id))

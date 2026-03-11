@@ -12,9 +12,9 @@ from .communication.feishu import FeishuCommunicationChannel
 from .config import APP_NAME, AgentSettings, Settings
 from .cron import CronService
 from .heartbeat import WorkspaceHeartbeatService
+from .runtime import CliRuntimeRegistry
 from .store import StateStore
 from .task_executor import TaskExecutor
-from .providers import CliRunnerRegistry
 from .workspaces import WorkspaceManager
 
 
@@ -24,7 +24,7 @@ log = logging.getLogger("light_claw.runtime_services")
 @dataclass
 class AgentRuntime:
     agent: AgentSettings
-    cli_registry: CliRunnerRegistry
+    cli_registry: CliRuntimeRegistry
     communication_channel: BaseCommunicationChannel
     task_executor: TaskExecutor
     chat_service: ChatService
@@ -219,7 +219,7 @@ def build_services(settings: Settings) -> RuntimeServices:
     agent_runtimes: dict[str, AgentRuntime] = {}
     task_executors: dict[str, TaskExecutor] = {}
     for agent in settings.agents:
-        cli_registry = CliRunnerRegistry.from_settings(settings, agent)
+        cli_registry = CliRuntimeRegistry.from_settings(settings, agent)
         communication_channel = FeishuCommunicationChannel(
             agent_id=agent.agent_id,
             app_id=agent.feishu_app_id or "",

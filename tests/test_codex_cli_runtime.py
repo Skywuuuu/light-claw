@@ -3,12 +3,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from light_claw.providers import CodexRunner
+from light_claw.runtime import CodexCliRuntime
 
 
-class CodexRunnerTest(unittest.TestCase):
+class CodexCliRuntimeTest(unittest.TestCase):
     def test_build_args_forwards_proxy_env_to_sandbox_commands(self) -> None:
-        runner = CodexRunner()
+        runtime = CodexCliRuntime()
         workspace_dir = Path("/tmp/light-claw")
         with patch.dict(
             os.environ,
@@ -18,7 +18,7 @@ class CodexRunnerTest(unittest.TestCase):
             },
             clear=False,
         ):
-            args = runner._build_args(
+            args = runtime._build_command_args(
                 prompt="test prompt",
                 workspace_dir=workspace_dir,
                 session_id=None,
@@ -37,7 +37,7 @@ class CodexRunnerTest(unittest.TestCase):
         self.assertIn("sandbox_workspace_write.network_access=true", args)
 
     def test_build_args_skips_proxy_overrides_when_env_is_missing(self) -> None:
-        runner = CodexRunner()
+        runtime = CodexCliRuntime()
         workspace_dir = Path("/tmp/light-claw")
         with patch.dict(
             os.environ,
@@ -53,7 +53,7 @@ class CodexRunnerTest(unittest.TestCase):
             },
             clear=False,
         ):
-            args = runner._build_args(
+            args = runtime._build_command_args(
                 prompt="test prompt",
                 workspace_dir=workspace_dir,
                 session_id=None,
@@ -70,9 +70,9 @@ class CodexRunnerTest(unittest.TestCase):
         self.assertIn("sandbox_workspace_write.network_access=true", args)
 
     def test_build_args_skips_workspace_network_override_without_sandbox(self) -> None:
-        runner = CodexRunner(sandbox="none")
+        runtime = CodexCliRuntime(sandbox="none")
         workspace_dir = Path("/tmp/light-claw")
-        args = runner._build_args(
+        args = runtime._build_command_args(
             prompt="test prompt",
             workspace_dir=workspace_dir,
             session_id=None,

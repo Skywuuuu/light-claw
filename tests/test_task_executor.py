@@ -32,7 +32,7 @@ class _FakeRegistry:
     def __init__(self, runner) -> None:
         self.runner = runner
 
-    def get_runner(self, provider_id):
+    def get_runtime(self, provider_id):
         return self.runner
 
     @staticmethod
