@@ -15,7 +15,11 @@ if TYPE_CHECKING:
 log = logging.getLogger("light_claw.communication.base")
 
 
-class IMLongConnectionClient(ABC):
+class BaseCommunicationChannel(ABC):
+    """Base IM channel interface for inbound communication adapters."""
+
+    name: str = "base"
+
     def __init__(
         self,
         *,
@@ -24,20 +28,31 @@ class IMLongConnectionClient(ABC):
         loop: asyncio.AbstractEventLoop,
         on_running_change: Callable[[str, bool], None] | None = None,
     ) -> None:
-        self._agent_id = agent_id
+        self.agent_id = agent_id
         self._chat_service = chat_service
         self._loop = loop
         self._on_running_change = on_running_change
+        self._running = False
 
     @abstractmethod
     def start(self) -> None:
+        """Start the communication channel and begin receiving inbound messages."""
         ...
 
-    def _mark_running(self, connected: bool) -> None:
-        if self._on_running_change is not None:
-            self._on_running_change(self._agent_id, connected)
+    def stop(self) -> None:
+        """Best-effort stop hook for blocking SDK-backed channels."""
+        self._set_running(False)
 
-    def _submit_inbound(self, inbound: FeishuInboundMessage) -> None:
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    def _set_running(self, running: bool) -> None:
+        self._running = running
+        if self._on_running_change is not None:
+            self._on_running_change(self.agent_id, running)
+
+    def _handle_inbound_message(self, inbound: FeishuInboundMessage) -> None:
         future = asyncio.run_coroutine_threadsafe(
             self._chat_service.handle_message(inbound),
             self._loop,
@@ -50,3 +65,6 @@ def _log_future_exception(future: Future[None]) -> None:
         future.result()
     except Exception:
         log.exception("background message handling failed")
+
+
+IMLongConnectionClient = BaseCommunicationChannel
