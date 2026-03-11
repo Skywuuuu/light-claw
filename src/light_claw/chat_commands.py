@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Optional
 
 from .archive import WorkspaceArchiveService
+from .communication.sender import MessageSender
 from .commands import Command, help_text
 from .config import AgentSettings, Settings
-from .message_sender import MessageSender
 from .models import FeishuInboundMessage, WorkspaceRecord
 from .providers import CliRunnerRegistry
 from .store import StateStore

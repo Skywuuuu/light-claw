@@ -5,9 +5,9 @@ import logging
 import time
 from typing import Callable, Iterable, Optional
 
+from .communication.sender import MessageSender
 from .commands import Command
 from .config import AgentSettings, Settings
-from .message_sender import MessageSender
 from .models import (
     SCHEDULE_KIND_INTERVAL,
     TASK_STATUS_CANCELLED,

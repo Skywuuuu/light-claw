@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from .communication.models import FeishuInboundMessage, FeishuReplyTarget
+
 TASK_STATUS_PENDING = "pending"
 TASK_STATUS_RUNNING = "running"
 TASK_STATUS_SUCCEEDED = "succeeded"
@@ -24,26 +26,6 @@ class WorkspaceRecord:
     cli_provider: str
     created_at: float
     updated_at: float
-
-
-@dataclass(frozen=True)
-class FeishuReplyTarget:
-    receive_id: str
-    receive_id_type: str
-
-
-@dataclass(frozen=True)
-class FeishuInboundMessage:
-    agent_id: str
-    bot_app_id: str
-    owner_id: str
-    conversation_id: str
-    message_id: str
-    message_type: str
-    content: str
-    reply_target: FeishuReplyTarget
-    chat_id: Optional[str] = None
-    chat_type: Optional[str] = None
 
 
 @dataclass(frozen=True)
