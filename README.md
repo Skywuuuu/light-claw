@@ -156,6 +156,11 @@ src/light_claw/
   config.py
   cron.py
   heartbeat.py
+  memory/
+    __init__.py
+    guidance.py
+    session_observations.py
+    task_progress.py
   models.py
   runtime/
     __init__.py
@@ -164,11 +169,9 @@ src/light_claw/
   runtime_services.py
   schedule_state.py
   server.py
-  session_observations.py
   store.py
   store_records.py
   task_commands.py
-  task_progress.py
   task_executor.py
   workspaces.py
 ```

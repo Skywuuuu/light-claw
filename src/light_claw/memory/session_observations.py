@@ -6,7 +6,7 @@ import os
 import time
 from pathlib import Path
 
-from .models import WorkspaceRecord
+from ..models import WorkspaceRecord
 
 
 _SNAPSHOT_IGNORED_DIRS = {

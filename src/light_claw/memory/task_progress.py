@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from .models import TASK_STATUS_SUCCEEDED, WorkspaceRecord, WorkspaceTaskRecord
+from ..models import TASK_STATUS_SUCCEEDED, WorkspaceRecord, WorkspaceTaskRecord
 
 
 _TASK_PROGRESS_MAX_CHARS = 2000
