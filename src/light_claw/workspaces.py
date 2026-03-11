@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from .memory.paths import daily_memory_relative_path, global_memory_relative_path
 from .models import WorkspaceRecord
 
 DEFAULT_WORKSPACE_ID = "default"
@@ -42,6 +43,8 @@ def _workspace_files(
         "skills_path": str(skills_path) if skills_path else None,
         "mcp_config_path": str(mcp_config_path) if mcp_config_path else None,
     }
+    durable_memory_path = global_memory_relative_path()
+    daily_memory_path = daily_memory_relative_path()
     return {
         "AGENTS.md": "\n".join(
             [
@@ -57,15 +60,17 @@ def _workspace_files(
                 "",
                 "Recommended usage:",
                 "- Keep task-specific code and docs here.",
-                "- Keep durable facts in `memory/`.",
+                f"- Keep durable memory in `{durable_memory_path}`.",
+                f"- Keep short-lived notes in `{daily_memory_path}`.",
                 "- Let your selected CLI run inside this directory so `AGENTS.md` is in scope.",
                 "",
                 "Before each task:",
-                "- Read the files under `./memory/`.",
+                f"- Read `./{durable_memory_path}`.",
+                "- Read relevant files under `./memory/daily/` when recent context may matter.",
                 "- Read `./.light-claw/agent.json` for the agent binding.",
                 "- Read `./.light-claw/skills.md` and `./.light-claw/mcp.md` before using custom tools.",
-                "- Treat `memory/*.md` as durable memory.",
-                "- Use `memory/daily/YYYY-MM-DD.md` for short-lived notes.",
+                f"- Treat `{durable_memory_path}` as durable long-term memory.",
+                f"- Use `{daily_memory_path}` for temporary notes and dated findings.",
                 "- Keep edits minimal and traceable.",
                 "- When you learn a durable fact about the user or project, update the right memory file.",
             ]
@@ -96,12 +101,26 @@ def _workspace_files(
             ]
         )
         + "\n",
-        "memory/identity.md": "# Identity\n\n- Owner:\n- Mission:\n- Working style:\n",
-        "memory/profile.md": "# Profile\n\n- Stable facts:\n- Preferences:\n",
-        "memory/preferences.md": "# Preferences\n\n- Coding preferences:\n- Communication preferences:\n",
-        "memory/projects.md": "# Projects\n\n- Active:\n- Backlog:\n",
-        "memory/decisions.md": "# Decisions\n\n- \n",
-        "memory/open_loops.md": "# Open Loops\n\n- \n",
+        durable_memory_path: "\n".join(
+            [
+                "# Workspace Memory",
+                "",
+                "Use this file for durable memory that should survive across tasks.",
+                "",
+                "## User",
+                "- Stable preferences:",
+                "- Working style:",
+                "",
+                "## Project",
+                "- Durable facts:",
+                "- Architecture:",
+                "- Active directions:",
+                "",
+                "## Decisions",
+                "- ",
+            ]
+        )
+        + "\n",
     }
 
 

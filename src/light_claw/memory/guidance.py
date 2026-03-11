@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .paths import daily_memory_relative_path, global_memory_relative_path
 from .session_observations import build_workspace_observation_entry, format_observation_entry
 from .task_progress import task_progress_relative_path
 from ..models import WorkspaceRecord, WorkspaceTaskRecord
@@ -63,8 +64,16 @@ def inject_memory_guidance(prompt: str) -> str:
     return "\n".join(
         [
             "Memory guidance:",
-            "- Read and update relevant markdown files under memory/ when you learn durable user preferences, project facts, open loops, or work philosophy from the user's messages.",
-            "- Keep memory updates concise, specific, and easy to scan.",
+            "- Read `{}` before answering when durable context may matter.".format(
+                global_memory_relative_path()
+            ),
+            "- Write stable user preferences, durable project facts, decisions, and working style directly into `{}`.".format(
+                global_memory_relative_path()
+            ),
+            "- Write temporary or date-specific notes to `{}` when they may help future work.".format(
+                daily_memory_relative_path()
+            ),
+            "- Do not force a memory edit when nothing worth preserving was learned.",
             "",
             prompt,
         ]
@@ -82,8 +91,15 @@ def inject_cron_task_guidance(*, task: WorkspaceTaskRecord, prompt: str) -> str:
     return "\n".join(
         [
             "Scheduled task guidance:",
-            "- First read the current task progress in `{}` if it exists.".format(progress_path),
-            "- Review relevant files under memory/ before continuing.",
+            "- First read `{}` for durable memory before continuing.".format(
+                global_memory_relative_path()
+            ),
+            "- Review `{}` if it exists.".format(progress_path),
+            "- Review relevant notes under `memory/daily/` when recent context matters.",
+            "- Write durable facts back to `{}` and temporary findings to `{}` when useful.".format(
+                global_memory_relative_path(),
+                daily_memory_relative_path(),
+            ),
             "- Do the next useful step for this task instead of repeating completed work.",
             "- Do any relevant research needed for this task.",
             "- Follow the project's working style: lightweight, simple, and easy to understand.",
