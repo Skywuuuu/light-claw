@@ -17,6 +17,7 @@ from .models import (
 )
 from .runtime import CliRuntimeError, CliRuntimeRegistry
 from .memory.guidance import (
+    build_task_memory_flush_prompt,
     inject_cron_task_guidance,
     inject_memory_guidance,
     inject_session_observations,
@@ -28,7 +29,7 @@ from .memory.session_observations import (
     record_observation,
     save_workspace_snapshot,
 )
-from .memory.task_progress import record_task_progress, task_progress_relative_path
+from .memory.task_memory import record_task_memory_update, task_memory_relative_path
 from .store import StateStore
 
 
@@ -73,7 +74,20 @@ class TaskExecutor:
         reply_target: ReplyTarget | None = None,
         announce_start: bool = True,
         deliver_result: bool = True,
+        memory_flush_prompt: str | None = None,
     ) -> TaskExecutionResult:
+        """Run one prompt inside the workspace and persist the resumed CLI session.
+
+        Args:
+            workspace: Workspace used for CLI execution.
+            prompt: Prompt text to send to the selected runtime.
+            conversation_id: Conversation id used to load and store resumed sessions.
+            conversation_owner_id: Conversation owner id paired with the conversation id.
+            reply_target: Optional reply target used for start/result messages.
+            announce_start: Whether to send the usual "working" message first.
+            deliver_result: Whether to send the final runtime answer back through the channel.
+            memory_flush_prompt: Optional hidden follow-up prompt used to flush memory after the run.
+        """
         session_id = None
         session_snapshot = None
         queued_observations: list[dict[str, object]] = []
@@ -107,7 +121,7 @@ class TaskExecutor:
         if reply_target is not None and announce_start:
             await self.communication_channel.send_text(
                 reply_target,
-                "Agent {} ({}) is working in {} ({}) with {}...".format(
+                'Agent {} ({}) is working in {} ({}) with {}...'.format(
                     self.agent.name,
                     self.agent.agent_id,
                     workspace.name,
@@ -142,18 +156,18 @@ class TaskExecutor:
                 workspace=workspace,
                 conversation_id=conversation_id,
                 conversation_owner_id=conversation_owner_id,
-                kind="runtime_event",
-                text="Previous CLI run failed.\nError:\n{}".format(error),
-                context_key="cli_failed",
+                kind='runtime_event',
+                text='Previous CLI run failed.\nError:\n{}'.format(error),
+                context_key='cli_failed',
             )
             if reply_target is not None:
                 await self.communication_channel.send_text(
                     reply_target,
-                    "CLI run failed:\n{}".format(error),
+                    'CLI run failed:\n{}'.format(error),
                 )
             return TaskExecutionResult(
                 status=TASK_STATUS_FAILED,
-                answer="",
+                answer='',
                 session_id=session_id,
                 error=error,
             )
@@ -165,40 +179,49 @@ class TaskExecutor:
                 conversation_owner_id=conversation_owner_id,
                 session_id=session_id,
             )
-            error = "Unexpected internal error."
+            error = 'Unexpected internal error.'
             self.record_observation(
                 workspace=workspace,
                 conversation_id=conversation_id,
                 conversation_owner_id=conversation_owner_id,
-                kind="runtime_event",
-                text="Previous CLI run failed.\nError:\n{}".format(error),
-                context_key="cli_failed",
+                kind='runtime_event',
+                text='Previous CLI run failed.\nError:\n{}'.format(error),
+                context_key='cli_failed',
             )
             if reply_target is not None:
                 await self.communication_channel.send_text(
                     reply_target,
-                    "CLI run failed:\n{}".format(error),
+                    'CLI run failed:\n{}'.format(error),
                 )
             return TaskExecutionResult(
                 status=TASK_STATUS_FAILED,
-                answer="",
+                answer='',
                 session_id=session_id,
                 error=error,
             )
 
         await self._stop_heartbeat(heartbeat_task)
+        final_session_id = result.session_id or session_id
         self._persist_session(
             workspace=workspace,
             conversation_id=conversation_id,
             conversation_owner_id=conversation_owner_id,
-            session_id=result.session_id or session_id,
+            session_id=final_session_id,
         )
         if reply_target is not None and deliver_result:
             await self.communication_channel.send_text(reply_target, result.answer)
+        if memory_flush_prompt and final_session_id:
+            final_session_id = await self._run_memory_flush(
+                workspace=workspace,
+                conversation_id=conversation_id,
+                conversation_owner_id=conversation_owner_id,
+                session_id=final_session_id,
+                flush_prompt=memory_flush_prompt,
+            )
         return TaskExecutionResult(
             status=TASK_STATUS_SUCCEEDED,
             answer=result.answer,
-            session_id=result.session_id or session_id,
+            session_id=final_session_id,
         )
 
     async def execute_workspace_task(
@@ -228,20 +251,20 @@ class TaskExecutor:
                 run.run_id,
                 status=TASK_STATUS_FAILED,
                 task_status=TASK_STATUS_FAILED,
-                error_message="Workspace not found.",
+                error_message='Workspace not found.',
                 result_excerpt=None,
                 next_run_at=None,
             )
             return TaskExecutionResult(
                 status=TASK_STATUS_FAILED,
-                answer="",
+                answer='',
                 session_id=None,
-                error="Workspace not found.",
+                error='Workspace not found.',
             )
 
         reply_target = self._task_reply_target(task)
         prompt = task.prompt
-        if trigger_source == "cron":
+        if trigger_source == 'cron':
             prompt = inject_cron_task_guidance(task=task, prompt=prompt)
         result = await self.execute_prompt(
             workspace=workspace,
@@ -251,8 +274,9 @@ class TaskExecutor:
             reply_target=reply_target,
             announce_start=announce_start,
             deliver_result=deliver_result,
+            memory_flush_prompt=build_task_memory_flush_prompt(task),
         )
-        progress_updated = record_task_progress(
+        task_memory_updated = record_task_memory_update(
             workspace=workspace,
             task=task,
             result_status=result.status,
@@ -276,32 +300,88 @@ class TaskExecutor:
         )
         if task.notify_conversation_id and task.notify_owner_id:
             observation = (
-                "Background task completed.\n{} ({})\nResult:\n{}".format(
+                'Background task completed.\n{} ({})\nResult:\n{}'.format(
                     task.title,
                     task.task_id,
                     self._truncate_excerpt(result.answer, max_chars=2000),
                 )
                 if result.status == TASK_STATUS_SUCCEEDED
-                else "Background task failed.\n{} ({})\nError:\n{}".format(
+                else 'Background task failed.\n{} ({})\nError:\n{}'.format(
                     task.title,
                     task.task_id,
-                    result.error or "Unknown error.",
+                    result.error or 'Unknown error.',
                 )
             )
-            if progress_updated:
-                observation = "{}\nProgress note: {}".format(
+            if task_memory_updated:
+                observation = '{}\nTask memory: {}'.format(
                     observation,
-                    task_progress_relative_path(task),
+                    task_memory_relative_path(task),
                 )
             self.record_observation(
                 workspace=workspace,
                 conversation_id=task.notify_conversation_id,
                 conversation_owner_id=task.notify_owner_id,
-                kind="task_update",
+                kind='task_update',
                 text=observation,
-                context_key="task:{}:{}".format(task.task_id, result.status),
+                context_key='task:{}:{}'.format(task.task_id, result.status),
             )
         return result
+
+    async def _run_memory_flush(
+        self,
+        *,
+        workspace: WorkspaceRecord,
+        conversation_id: str | None,
+        conversation_owner_id: str | None,
+        session_id: str,
+        flush_prompt: str,
+    ) -> str:
+        """Run the hidden memory-flush follow-up prompt and persist the resumed session.
+
+        Args:
+            workspace: Workspace used for CLI execution.
+            conversation_id: Conversation id used to store the resumed session when available.
+            conversation_owner_id: Conversation owner id paired with the conversation id.
+            session_id: Existing Codex session id from the main run.
+            flush_prompt: Hidden follow-up prompt that performs memory updates.
+        """
+        runtime = self.cli_registry.get_runtime(workspace.cli_provider)
+        try:
+            flush_result = await runtime.run(
+                prompt=flush_prompt,
+                workspace_dir=workspace.path,
+                session_id=session_id,
+            )
+        except CliRuntimeError as exc:
+            if conversation_id and conversation_owner_id:
+                self.record_observation(
+                    workspace=workspace,
+                    conversation_id=conversation_id,
+                    conversation_owner_id=conversation_owner_id,
+                    kind='runtime_event',
+                    text='Previous memory flush failed.\nError:\n{}'.format(str(exc)),
+                    context_key='memory_flush_failed',
+                )
+            return session_id
+        except Exception:
+            if conversation_id and conversation_owner_id:
+                self.record_observation(
+                    workspace=workspace,
+                    conversation_id=conversation_id,
+                    conversation_owner_id=conversation_owner_id,
+                    kind='runtime_event',
+                    text='Previous memory flush failed.\nError:\nUnexpected internal error.',
+                    context_key='memory_flush_failed',
+                )
+            return session_id
+        flushed_session_id = flush_result.session_id or session_id
+        self._persist_session(
+            workspace=workspace,
+            conversation_id=conversation_id,
+            conversation_owner_id=conversation_owner_id,
+            session_id=flushed_session_id,
+        )
+        return flushed_session_id
 
     async def _send_heartbeat(
         self,
@@ -317,7 +397,7 @@ class TaskExecutor:
             idle = int(now - tracker.last_activity_at)
             await self.communication_channel.send_text(
                 reply_target,
-                "Agent {} is still running in {} ({}). Elapsed: {}s. Recent activity: {}s ago.".format(
+                'Agent {} is still running in {} ({}). Elapsed: {}s. Recent activity: {}s ago.'.format(
                     self.agent.agent_id,
                     workspace.name,
                     workspace.workspace_id,
@@ -341,11 +421,7 @@ class TaskExecutor:
         conversation_owner_id: str | None,
         session_id: str | None,
     ) -> None:
-        if (
-            not session_id
-            or not conversation_id
-            or not conversation_owner_id
-        ):
+        if not session_id or not conversation_id or not conversation_owner_id:
             return
         self.store.set_session_id(
             self.agent.agent_id,
@@ -416,7 +492,7 @@ class TaskExecutor:
     def _truncate_excerpt(answer: str, max_chars: int = 400) -> str:
         if len(answer) <= max_chars:
             return answer
-        return answer[:max_chars].rstrip() + "..."
+        return answer[:max_chars].rstrip() + '...'
 
     @staticmethod
     def _task_reply_target(task: WorkspaceTaskRecord) -> ReplyTarget | None:

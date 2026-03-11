@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from .memory.migration import merge_legacy_global_memory
 from .models import WorkspaceRecord
 
 DEFAULT_WORKSPACE_ID = "default"
@@ -22,7 +23,6 @@ def _agent_dir_name(agent_id: str) -> str:
 
 def workspace_relative_dir(agent_id: str) -> Path:
     """Return the relative directory used for a workspace on disk."""
-
     return Path(_agent_dir_name(agent_id))
 
 
@@ -55,19 +55,50 @@ def _workspace_files(
                 f"- This is the isolated agent workspace `{workspace_id}`.",
                 f"- It belongs to agent `{agent_id}` ({agent_name}).",
                 "",
+                "Memory contract:",
+                "- Long-term durable memory lives in `AGENTS.md`.",
+                "- Temporary dated memory lives in `memory/daily/YYYY-MM-DD.md`.",
+                "- Task-scoped durable memory lives in `memory/<task_id>.md`.",
+                "- Use the built-in memory MCP tools: `memory_search`, `memory_get`, and `memory_append`.",
+                "",
                 "Recommended usage:",
                 "- Keep task-specific code and docs here.",
-                "- Keep durable facts in `memory/`.",
+                "- Keep durable long-term memory in `AGENTS.md`.",
+                "- Keep temporary dated notes in `memory/daily/YYYY-MM-DD.md`.",
+                "- Keep task-scoped memory in `memory/<task_id>.md`.",
                 "- Let your selected CLI run inside this directory so `AGENTS.md` is in scope.",
                 "",
                 "Before each task:",
-                "- Read the files under `./memory/`.",
+                "- Read `AGENTS.md` as the durable global memory for this agent workspace.",
+                "- Read the files under `./memory/` for dated notes and task-scoped memory.",
                 "- Read `./.light-claw/agent.json` for the agent binding.",
                 "- Read `./.light-claw/skills.md` and `./.light-claw/mcp.md` before using custom tools.",
-                "- Treat `memory/*.md` as durable memory.",
-                "- Use `memory/daily/YYYY-MM-DD.md` for short-lived notes.",
+                "- Recall existing context with `memory_search` and `memory_get` before writing new memory.",
+                "- Write stable long-term facts back into `AGENTS.md`.",
+                "- Use `memory_append` to add temporary facts to `memory/daily/YYYY-MM-DD.md`.",
                 "- Keep edits minimal and traceable.",
-                "- When you learn a durable fact about the user or project, update the right memory file.",
+                "",
+                "After each completed conversation or task:",
+                "- Run one dedicated memory flush.",
+                "- Preserve only durable facts in `AGENTS.md`.",
+                "- Preserve temporary dated facts with `memory_append`.",
+                "- Preserve task-specific state in `memory/<task_id>.md` when relevant.",
+                "",
+                "## Agent Memory",
+                "",
+                "### Identity and Mission",
+                "- Mission:",
+                "- Working style:",
+                "- Stable self-knowledge:",
+                "",
+                "### User Preferences",
+                "- Coding preferences:",
+                "- Communication preferences:",
+                "- Verification preferences:",
+                "",
+                "### Durable Decisions and Open Loops",
+                "- Decisions:",
+                "- Open loops:",
             ]
         )
         + "\n",
@@ -91,17 +122,23 @@ def _workspace_files(
                 "This file records the MCP/tool profile allowed for the current agent.",
                 "Treat it as the agent-local MCP contract before calling external tools.",
                 "",
+                "Built-in memory MCP tools:",
+                "- `memory_search`: search `AGENTS.md`, task memory, and dated daily memory.",
+                "- `memory_get`: read one managed memory file or line range.",
+                "- `memory_append`: append temporary dated memory into `memory/daily/YYYY-MM-DD.md`.",
+                "",
+                "Built-in memory HTTP API:",
+                "- `GET /api/memory/{agent_id}/sources`",
+                "- `GET /api/memory/{agent_id}/search?query=...`",
+                "- `GET /api/memory/{agent_id}/get?path=...`",
+                "- `PUT /api/memory/{agent_id}/file`",
+                "- `POST /api/memory/{agent_id}/append`",
+                "",
                 "Configured source:",
                 str(mcp_config_path) if mcp_config_path else "(none configured)",
             ]
         )
         + "\n",
-        "memory/identity.md": "# Identity\n\n- Owner:\n- Mission:\n- Working style:\n",
-        "memory/profile.md": "# Profile\n\n- Stable facts:\n- Preferences:\n",
-        "memory/preferences.md": "# Preferences\n\n- Coding preferences:\n- Communication preferences:\n",
-        "memory/projects.md": "# Projects\n\n- Active:\n- Backlog:\n",
-        "memory/decisions.md": "# Decisions\n\n- \n",
-        "memory/open_loops.md": "# Open Loops\n\n- \n",
     }
 
 
@@ -188,3 +225,4 @@ class WorkspaceManager:
             if not target.exists():
                 target.write_text(content, encoding="utf-8")
         (workspace_dir / "memory" / "daily").mkdir(parents=True, exist_ok=True)
+        merge_legacy_global_memory(workspace_dir)

@@ -20,8 +20,16 @@ class WorkspaceManagerTest(unittest.TestCase):
             self.assertTrue((workspace.path / "AGENTS.md").exists())
             self.assertTrue((workspace.path / ".light-claw" / "agent.json").exists())
             self.assertTrue((workspace.path / "memory").is_dir())
-            self.assertTrue((workspace.path / "memory" / "identity.md").exists())
             self.assertTrue((workspace.path / "memory" / "daily").is_dir())
+            agents_content = (workspace.path / "AGENTS.md").read_text(encoding="utf-8")
+            self.assertIn("Long-term durable memory lives in `AGENTS.md`.", agents_content)
+            self.assertIn("Use the built-in memory MCP tools", agents_content)
+            self.assertIn("After each completed conversation or task:", agents_content)
+            mcp_content = (workspace.path / ".light-claw" / "mcp.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("Built-in memory MCP tools:", mcp_content)
+            self.assertIn("POST /api/memory/{agent_id}/append", mcp_content)
             self.assertEqual(
                 workspace_relative_dir("writer"),
                 Path("writer"),

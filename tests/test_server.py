@@ -157,6 +157,67 @@ class ServerTest(unittest.TestCase):
                 self.assertEqual(updated_task.status, "failed")
                 self.assertEqual(updated_task.next_run_at, 60.0)
 
+    def test_memory_api_supports_search_get_and_append_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with patch.dict(
+                os.environ,
+                {
+                    "FEISHU_ENABLED": "false",
+                    "LIGHT_CLAW_ARCHIVE_ENABLED": "false",
+                    "LIGHT_CLAW_TASK_HEARTBEAT_ENABLED": "false",
+                    "LIGHT_CLAW_CRON_ENABLED": "false",
+                    "LIGHT_CLAW_DATA_DIR": "",
+                },
+                clear=True,
+            ):
+                settings = Settings.from_env(base_dir=Path(tmp_dir) / "repo")
+
+            with TestClient(create_app(settings)) as client:
+                workspace_path = settings.workspaces_dir / DEFAULT_AGENT_ID
+                workspace_path.mkdir(parents=True, exist_ok=True)
+                (workspace_path / "AGENTS.md").write_text(
+                    "# AGENTS.md\n\n- Preferred style: concise\n",
+                    encoding="utf-8",
+                )
+                client.app.state.services.store.create_workspace(
+                    WorkspaceRecord(
+                        agent_id=DEFAULT_AGENT_ID,
+                        owner_id="ou_1",
+                        workspace_id="default",
+                        name="Default",
+                        path=workspace_path,
+                        cli_provider="codex",
+                        created_at=0.0,
+                        updated_at=0.0,
+                    )
+                )
+
+                append_response = client.post(
+                    f"/api/memory/{DEFAULT_AGENT_ID}/append",
+                    json={"content": "Remember today", "entry_date": "2026-03-11"},
+                )
+                self.assertEqual(append_response.status_code, 200)
+                self.assertEqual(
+                    append_response.json(),
+                    {"path": "memory/daily/2026-03-11.md"},
+                )
+
+                search_response = client.get(
+                    f"/api/memory/{DEFAULT_AGENT_ID}/search",
+                    params={"query": "Remember", "limit": 10},
+                )
+                self.assertEqual(search_response.status_code, 200)
+                hits = search_response.json()["hits"]
+                self.assertTrue(any(hit["scope"] == "memory" for hit in hits))
+
+                get_response = client.get(
+                    f"/api/memory/{DEFAULT_AGENT_ID}/get",
+                    params={"path": "AGENTS.md"},
+                )
+                self.assertEqual(get_response.status_code, 200)
+                self.assertEqual(get_response.json()["path"], "AGENTS.md")
+                self.assertIn("Preferred style: concise", get_response.json()["content"])
+
 
 if __name__ == "__main__":
     unittest.main()

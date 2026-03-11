@@ -14,6 +14,7 @@ from .communication.feishu import (
     verify_token,
 )
 from .config import AgentSettings, APP_NAME, Settings
+from .memory.api import create_memory_router
 from .runtime_services import (
     RuntimeHealth,
     RuntimeServices,
@@ -47,6 +48,7 @@ def create_app(
                 await shutdown_services(active_services)
 
     app = FastAPI(title=APP_NAME, lifespan=lifespan)
+    app.include_router(create_memory_router())
 
     @app.get("/livez")
     async def livez() -> dict[str, bool]:

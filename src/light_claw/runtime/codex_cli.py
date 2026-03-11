@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Callable
 
@@ -10,15 +11,17 @@ from ..models import CliRunResult
 
 
 PROXY_ENV_KEYS = (
-    "HTTP_PROXY",
-    "HTTPS_PROXY",
-    "ALL_PROXY",
-    "NO_PROXY",
-    "http_proxy",
-    "https_proxy",
-    "all_proxy",
-    "no_proxy",
+    'HTTP_PROXY',
+    'HTTPS_PROXY',
+    'ALL_PROXY',
+    'NO_PROXY',
+    'http_proxy',
+    'https_proxy',
+    'all_proxy',
+    'no_proxy',
 )
+
+_MEMORY_MCP_SERVER_NAME = 'light_claw_memory'
 
 
 class CodexCliRuntimeError(RuntimeError):
@@ -32,7 +35,7 @@ def parse_codex_cli_output(raw_output: str) -> CliRunResult:
         raw_output: Raw stdout returned by `codex exec --json`.
     """
     session_id = None
-    answer = ""
+    answer = ''
     for line in raw_output.splitlines():
         line = line.strip()
         if not line:
@@ -41,33 +44,31 @@ def parse_codex_cli_output(raw_output: str) -> CliRunResult:
             event = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if event.get("type") == "thread.started" and isinstance(
-            event.get("thread_id"), str
-        ):
-            session_id = event["thread_id"]
-        item = event.get("item")
+        if event.get('type') == 'thread.started' and isinstance(event.get('thread_id'), str):
+            session_id = event['thread_id']
+        item = event.get('item')
         if (
-            event.get("type") == "item.completed"
+            event.get('type') == 'item.completed'
             and isinstance(item, dict)
-            and item.get("type") == "agent_message"
-            and isinstance(item.get("text"), str)
+            and item.get('type') == 'agent_message'
+            and isinstance(item.get('text'), str)
         ):
-            answer = item["text"]
+            answer = item['text']
     if not answer:
-        answer = "(Codex returned no agent_message output.)"
+        answer = '(Codex returned no agent_message output.)'
     return CliRunResult(session_id=session_id, answer=answer, raw_output=raw_output)
 
 
 class CodexCliRuntime:
     """Run prompts through the local `codex` CLI and resume prior threads when needed."""
 
-    provider_id = "codex"
-    display_name = "Codex"
+    provider_id = 'codex'
+    display_name = 'Codex'
 
     def __init__(
         self,
-        codex_bin: str = "codex",
-        sandbox: str = "full-auto",
+        codex_bin: str = 'codex',
+        sandbox: str = 'full-auto',
         default_model: str | None = None,
         default_search: bool = False,
         timeout_min_seconds: int = 180,
@@ -120,9 +121,7 @@ class CodexCliRuntime:
                 stderr=asyncio.subprocess.PIPE,
             )
         except OSError as exc:
-            raise CodexCliRuntimeError(
-                "failed to start codex: {}".format(str(exc))
-            ) from exc
+            raise CodexCliRuntimeError('failed to start codex: {}'.format(str(exc))) from exc
 
         last_activity_at = asyncio.get_running_loop().time()
 
@@ -132,12 +131,8 @@ class CodexCliRuntime:
             if on_activity is not None:
                 on_activity()
 
-        stdout_task = asyncio.create_task(
-            self._read_stream(process.stdout, record_activity)
-        )
-        stderr_task = asyncio.create_task(
-            self._read_stream(process.stderr, record_activity)
-        )
+        stdout_task = asyncio.create_task(self._read_stream(process.stdout, record_activity))
+        stderr_task = asyncio.create_task(self._read_stream(process.stderr, record_activity))
 
         started_at = asyncio.get_running_loop().time()
         try:
@@ -152,9 +147,7 @@ class CodexCliRuntime:
                     > self.stall_timeout_seconds
                 ):
                     raise CodexCliRuntimeError(
-                        "codex stalled for {} seconds".format(
-                            self.stall_timeout_seconds
-                        )
+                        'codex stalled for {} seconds'.format(self.stall_timeout_seconds)
                     )
                 try:
                     await asyncio.wait_for(process.wait(), timeout=1.0)
@@ -164,7 +157,7 @@ class CodexCliRuntime:
             process.kill()
             await process.wait()
             raise CodexCliRuntimeError(
-                "codex timed out after {} seconds".format(timeout_seconds)
+                'codex timed out after {} seconds'.format(timeout_seconds)
             ) from exc
         except CodexCliRuntimeError:
             process.kill()
@@ -174,9 +167,9 @@ class CodexCliRuntime:
         stdout_text = await stdout_task
         stderr_text = await stderr_task
         if process.returncode != 0:
-            detail = stderr_text.strip() or stdout_text.strip() or "unknown error"
+            detail = stderr_text.strip() or stdout_text.strip() or 'unknown error'
             raise CodexCliRuntimeError(
-                "codex exited with code {}: {}".format(process.returncode, detail)
+                'codex exited with code {}: {}'.format(process.returncode, detail)
             )
 
         parsed = parse_codex_cli_output(stdout_text)
@@ -198,7 +191,7 @@ class CodexCliRuntime:
             on_activity: Callback triggered whenever a new chunk is read.
         """
         if stream is None:
-            return ""
+            return ''
         chunks = []
         while True:
             chunk = await stream.read(65536)
@@ -206,8 +199,8 @@ class CodexCliRuntime:
                 break
             if on_activity is not None:
                 on_activity()
-            chunks.append(chunk.decode("utf-8", errors="replace"))
-        return "".join(chunks)
+            chunks.append(chunk.decode('utf-8', errors='replace'))
+        return ''.join(chunks)
 
     def _build_command_args(
         self,
@@ -227,52 +220,76 @@ class CodexCliRuntime:
             search: Whether to enable Codex search for this run.
         """
         sandbox_flag = (
-            "--dangerously-bypass-approvals-and-sandbox"
-            if self.sandbox == "none"
-            else "--full-auto"
+            '--dangerously-bypass-approvals-and-sandbox'
+            if self.sandbox == 'none'
+            else '--full-auto'
         )
         if session_id:
             command_args = [
-                "exec",
-                "resume",
+                'exec',
+                'resume',
                 session_id,
-                "--json",
+                '--json',
                 sandbox_flag,
-                "--skip-git-repo-check",
+                '--skip-git-repo-check',
             ]
         else:
             command_args = [
-                "exec",
-                "--json",
+                'exec',
+                '--json',
                 sandbox_flag,
-                "--skip-git-repo-check",
+                '--skip-git-repo-check',
             ]
 
         if model:
-            command_args.extend(["--model", model])
+            command_args.extend(['--model', model])
         command_args.extend(self._build_sandbox_config_args())
+        command_args.extend(self._build_memory_mcp_config_args(workspace_dir))
         command_args.extend(self._build_proxy_config_args())
-        command_args = ["--cd", str(workspace_dir)] + command_args
+        command_args = ['--cd', str(workspace_dir)] + command_args
         if search:
-            command_args = ["--search"] + command_args
+            command_args = ['--search'] + command_args
         command_args.append(prompt)
         return command_args
 
     def _build_sandbox_config_args(self) -> list[str]:
         """Build additional CLI args needed for the configured sandbox mode."""
-        if self.sandbox == "none":
+        if self.sandbox == 'none':
             return []
-        return ["--config", "sandbox_workspace_write.network_access=true"]
+        return ['--config', 'sandbox_workspace_write.network_access=true']
+
+    def _build_memory_mcp_config_args(self, workspace_dir: Path) -> list[str]:
+        """Build Codex CLI config args that expose the built-in memory MCP tools.
+
+        Args:
+            workspace_dir: Workspace directory whose memory files should be exposed.
+        """
+        python_path = self._resolve_memory_pythonpath()
+        config_values = {
+            f'mcp_servers.{_MEMORY_MCP_SERVER_NAME}.command': sys.executable,
+            f'mcp_servers.{_MEMORY_MCP_SERVER_NAME}.args': ['-m', 'light_claw.memory.mcp_server'],
+            f'mcp_servers.{_MEMORY_MCP_SERVER_NAME}.env.LIGHT_CLAW_MEMORY_WORKSPACE': str(workspace_dir),
+            f'mcp_servers.{_MEMORY_MCP_SERVER_NAME}.env.PYTHONPATH': python_path,
+        }
+        command_args: list[str] = []
+        for key, value in config_values.items():
+            command_args.extend(['--config', f'{key}={json.dumps(value)}'])
+        return command_args
+
+    def _resolve_memory_pythonpath(self) -> str:
+        """Build the PYTHONPATH used by the memory MCP subprocess."""
+        src_dir = str(Path(__file__).resolve().parents[2])
+        current = os.getenv('PYTHONPATH')
+        if current:
+            return os.pathsep.join([src_dir, current])
+        return src_dir
 
     def _build_proxy_config_args(self) -> list[str]:
         """Forward host proxy settings into Codex sandbox shell commands."""
         command_args: list[str] = []
         for key, value in self._read_proxy_environment().items():
             command_args.extend(
-                [
-                    "--config",
-                    f"shell_environment_policy.set.{key}={json.dumps(value)}",
-                ]
+                ['--config', f'shell_environment_policy.set.{key}={json.dumps(value)}']
             )
         return command_args
 
@@ -294,7 +311,4 @@ class CodexCliRuntime:
         estimate = self.timeout_min_seconds + int(
             max(0, len(prompt)) * max(0, self.timeout_per_char_ms) / 1000
         )
-        return max(
-            self.timeout_min_seconds,
-            min(self.timeout_max_seconds, estimate),
-        )
+        return max(self.timeout_min_seconds, min(self.timeout_max_seconds, estimate))

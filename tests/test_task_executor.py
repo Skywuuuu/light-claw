@@ -187,6 +187,46 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(communication_channel.messages[-1][2], "done")
             store.close()
 
+    async def test_execute_prompt_runs_memory_flush_without_conversation_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = StateStore(Path(tmp_dir) / "state.db")
+            workspace = store.create_workspace(
+                WorkspaceRecord(
+                    agent_id="agent-a",
+                    owner_id="ou_1",
+                    workspace_id="default",
+                    name="Default",
+                    path=Path(tmp_dir) / "default",
+                    cli_provider="codex",
+                    created_at=0.0,
+                    updated_at=0.0,
+                )
+            )
+            runner = _FakeRunner(CliRunResult(session_id="sess-1", answer="done", raw_output=""))
+            executor = TaskExecutor(
+                settings=self._build_settings(tmp_dir),
+                agent=self._build_agent(),
+                store=store,
+                cli_registry=_FakeRegistry(runner),
+                communication_channel=_FakeCommunicationChannel(),
+            )
+
+            result = await executor.execute_prompt(
+                workspace=workspace,
+                prompt="Do work",
+                announce_start=False,
+                deliver_result=False,
+                memory_flush_prompt="Dedicated memory flush:\n- Reply with exactly `Memory flush complete.`",
+            )
+
+            self.assertEqual(result.status, "succeeded")
+            self.assertEqual(result.session_id, "sess-1")
+            self.assertEqual(len(runner.calls), 2)
+            self.assertEqual(runner.calls[0][2], None)
+            self.assertEqual(runner.calls[1][0], "Dedicated memory flush:\n- Reply with exactly `Memory flush complete.`")
+            self.assertEqual(runner.calls[1][2], "sess-1")
+            store.close()
+
     async def test_execute_workspace_task_records_run_and_reschedule(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             store = StateStore(Path(tmp_dir) / "state.db")
@@ -285,7 +325,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
 
             injected_prompt, resumed_dir, resumed_session = runner.calls[-1]
             self.assertEqual(resumed_dir.resolve(), workspace_path.resolve())
-            self.assertIsNone(resumed_session)
+            self.assertEqual(resumed_session, None)
             self.assertIn("Session observations:", injected_prompt)
             self.assertIn("Memory guidance:", injected_prompt)
             self.assertIn("command_result", injected_prompt)
@@ -422,11 +462,11 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             )
 
             self.assertIsNotNone(result)
-            cron_prompt = runner.calls[-1][0]
+            cron_prompt = runner.calls[-2][0]
             self.assertIn("Scheduled task guidance:", cron_prompt)
-            self.assertIn("memory/tasks/{}.md".format(task.task_id), cron_prompt)
+            self.assertIn("memory/{}.md".format(task.task_id), cron_prompt)
             self.assertIn("lightweight, simple, and easy to understand", cron_prompt)
-            progress_path = workspace_path / "memory" / "tasks" / "{}.md".format(task.task_id)
+            progress_path = workspace_path / "memory" / "{}.md".format(task.task_id)
             self.assertTrue(progress_path.exists())
             self.assertIn("Step 1 complete", progress_path.read_text(encoding="utf-8"))
             store.close()
@@ -498,14 +538,15 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 )
             )
 
-            injected_prompt, resumed_dir, resumed_session = runner.calls[-1]
+            injected_prompt, resumed_dir, resumed_session = runner.calls[-2]
             self.assertEqual(resumed_dir.resolve(), workspace.path.resolve())
-            self.assertIsNone(resumed_session)
+            self.assertEqual(resumed_session, None)
             self.assertIn("Session observations:", injected_prompt)
             self.assertIn("Memory guidance:", injected_prompt)
             self.assertIn("command_result", injected_prompt)
             self.assertIn("CLI provider updated.", injected_prompt)
             self.assertTrue(injected_prompt.rstrip().endswith("Continue"))
+            self.assertEqual(runner.calls[-1][2], "sess-1")
             store.close()
 
     async def test_task_create_starts_first_run_immediately(self) -> None:
@@ -565,6 +606,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Task created.", communication_channel.messages[0][2])
             self.assertIn("First run: starting now", communication_channel.messages[0][2])
             self.assertEqual(runner.calls[0][2], None)
+            self.assertEqual(runner.calls[1][2], "sess-1")
             self.assertTrue(runner.calls[0][0].rstrip().endswith("Keep improving"))
 
             tasks = store.list_workspace_tasks("agent-a", "ou_1", "default")

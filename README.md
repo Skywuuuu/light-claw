@@ -74,7 +74,7 @@ flowchart TB
     store[StateStore on SQLite\nworkspace / conversation_state / conversation_session /\nworkspace_task / task_run / scheduled_task / inbound_message]
     workspace_dir[Workspace directory\nAGENTS.md / memory/ / .light-claw/]
     observations[Session observations + schedule state\n.light-claw/session-observations/\n.light-claw/scheduled-tasks/]
-    progress[Task progress notes\nmemory/tasks/task-id.md]
+    task_memory[Task memory\nmemory/task-id.md]
     archive_dir[Archive mirror\n../light-claw-data/]
   end
 
@@ -111,7 +111,7 @@ flowchart TB
   taskexec --> store
   taskexec --> workspace_dir
   taskexec --> observations
-  taskexec --> progress
+  taskexec --> task_memory
   taskexec --> registry
   taskexec --> channel
 
@@ -158,9 +158,13 @@ src/light_claw/
   heartbeat.py
   memory/
     __init__.py
+    api.py
     guidance.py
+    mcp_server.py
+    migration.py
     session_observations.py
-    task_progress.py
+    storage.py
+    task_memory.py
   models.py
   runtime/
     __init__.py
@@ -297,15 +301,27 @@ Each workspace contains:
 - `.light-claw/agent.json`
 - `.light-claw/skills.md`
 - `.light-claw/mcp.md`
-- `memory/identity.md`
-- `memory/profile.md`
-- `memory/preferences.md`
-- `memory/projects.md`
-- `memory/decisions.md`
-- `memory/open_loops.md`
 - `memory/daily/`
+- `memory/<task_id>.md` when a task needs durable task memory
 
 The selected CLI runs inside the selected workspace, so the workspace instructions, memory files, and agent-local tool profile files are part of its local context.
+
+The memory model is intentionally small and direct:
+
+- long-term stable memory stays in `AGENTS.md`
+- temporary dated notes stay in `memory/daily/YYYY-MM-DD.md`
+- task-scoped durable notes stay in `memory/<task_id>.md`
+- the runtime injects the memory rules into prompts and exposes `memory_search`, `memory_get`, and `memory_append` through MCP
+
+The built-in memory HTTP API mirrors the same contract:
+
+- `GET /api/memory/{agent_id}/sources`
+- `GET /api/memory/{agent_id}/search?query=...`
+- `GET /api/memory/{agent_id}/get?path=...`
+- `PUT /api/memory/{agent_id}/file`
+- `POST /api/memory/{agent_id}/append`
+
+Legacy `memory/identity.md`, `memory/profile.md`, and `memory/preferences.md` are merged into `AGENTS.md` on workspace bootstrap. Legacy `memory/projects.md` is merged into the next task memory file that gets created for that workspace.
 
 `light-claw` also keeps a small per-session observation queue in the workspace. The next prompt for that conversation prepends any queued observations, such as workspace file changes, mutating command results, background task updates, and previous runtime failures. Workspace file changes are still computed from the last recorded snapshot, but they now flow through the same observation path as the other session events.
 
@@ -347,8 +363,9 @@ Execution model:
 - `/task create` acknowledges the task immediately and also kicks off the first background run right away instead of waiting for the next heartbeat tick
 - `WorkspaceHeartbeatService` periodically resumes running workspace tasks
 - `CronService` triggers scheduled task runs and records the next due time in SQLite
-- background task runs keep lightweight progress notes under `memory/tasks/<task_id>.md`
+- background task runs keep lightweight durable notes under `memory/<task_id>.md`
 - cron-triggered runs automatically review `memory/` and the task progress note before continuing
+- every completed chat/task run performs one dedicated memory flush so durable facts can be saved into `AGENTS.md`, dated notes, or task memory
 - cron schedules stop themselves after repeated no-change results so they do not keep reporting the same completion forever
 - service startup recovers orphaned `running` task runs from a previous process so cron and heartbeat can claim those tasks again instead of spinning forever
 

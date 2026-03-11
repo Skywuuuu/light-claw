@@ -8,6 +8,7 @@ from .chat_commands import ChatCommandHandler
 from .communication.base import BaseCommunicationChannel
 from .communication.messages import InboundMessage
 from .commands import parse_command
+from .memory.guidance import build_chat_memory_flush_prompt
 from .config import AgentSettings, Settings
 from .runtime import CliRuntimeRegistry
 from .store import StateStore
@@ -118,6 +119,7 @@ class ChatService:
             reply_target=message.reply_target,
             announce_start=True,
             deliver_result=True,
+            memory_flush_prompt=build_chat_memory_flush_prompt(),
         )
         if result.status != "succeeded":
             return "cli_failed"

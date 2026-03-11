@@ -31,8 +31,9 @@ class WorkspaceArchiveServiceTest(unittest.IsolatedAsyncioTestCase):
         workspace_dir.mkdir(parents=True, exist_ok=True)
         (workspace_dir / "AGENTS.md").write_text("# Agent\n", encoding="utf-8")
         (workspace_dir / "memory").mkdir()
-        (workspace_dir / "memory" / "identity.md").write_text(
-            "# Identity\n",
+        (workspace_dir / "memory" / "daily").mkdir(parents=True, exist_ok=True)
+        (workspace_dir / "memory" / "daily" / "2026-03-11.md").write_text(
+            "# Daily Memory\n",
             encoding="utf-8",
         )
         self.store.create_workspace(
@@ -74,7 +75,8 @@ class WorkspaceArchiveServiceTest(unittest.IsolatedAsyncioTestCase):
                 / "workspaces"
                 / "writer"
                 / "memory"
-                / "identity.md"
+                / "daily"
+                / "2026-03-11.md"
             ).exists()
         )
 
