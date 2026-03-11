@@ -6,7 +6,7 @@
 - Persistent workspace/session state in SQLite
 - One persistent workspace per agent
 - One Feishu app/bot per agent
-- One long-connection client per agent in a single lightweight process
+- One Feishu communication channel per agent in a single lightweight process
 - One CLI provider selection per agent workspace
 - Each workspace is bootstrapped with `AGENTS.md`, `memory/`, and agent-local tool profile files
 - CLI conversations resume on the same Feishu conversation until `/reset`
@@ -60,7 +60,7 @@ flowchart TB
       commands[Slash commands\n/cli /task /cron /reset]
       taskexec[TaskExecutor]
       registry[CliRunnerRegistry]
-      message_sender[MessageSender\nFeishu implementation]
+      channel[FeishuCommunicationChannel\nsend + long connection]
     end
 
     subgraph background[Background loops]
@@ -92,8 +92,8 @@ flowchart TB
 
   chat --> commands
   chat --> taskexec
-  chat --> message_sender
-  message_sender --> reply_api
+  chat --> channel
+  channel --> reply_api
   reply_api --> user
 
   commands --> store
@@ -113,7 +113,7 @@ flowchart TB
   taskexec --> observations
   taskexec --> progress
   taskexec --> registry
-  taskexec --> message_sender
+  taskexec --> channel
 
   registry --> provider
   provider --> codex
@@ -152,7 +152,6 @@ src/light_claw/
     base.py
     messages.py
     feishu.py
-    sender.py
   commands.py
   config.py
   cron.py
@@ -281,7 +280,7 @@ Use `FEISHU_EVENT_MODE=webhook` when you want Feishu to call your HTTP server.
 Use `FEISHU_EVENT_MODE=long_connection` when you want the process to keep a websocket connection to Feishu.
 
 - `FEISHU_VERIFICATION_TOKEN` is not required
-- The process starts one long-connection client per configured agent
+- The process starts one long-connection-capable communication channel per configured agent
 - The same process also serves local health endpoints on `HOST:PORT`
 - Start with `uv run light-claw`
 - Make sure the process is already running before saving the "use long connection" setting in the Feishu console

@@ -67,9 +67,12 @@ class _FakeRegistry:
         ]
 
 
-class _FakeMessageSender:
+class _FakeCommunicationChannel:
     def __init__(self) -> None:
         self.messages = []
+
+    def start(self) -> None:
+        return None
 
     async def send_text(self, target, content):
         self.messages.append((target.receive_id, target.receive_id_type, content))
@@ -161,13 +164,13 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 )
             )
             runner = _FakeRunner(CliRunResult(session_id="sess-1", answer="done", raw_output=""))
-            message_sender = _FakeMessageSender()
+            communication_channel = _FakeCommunicationChannel()
             executor = TaskExecutor(
                 settings=self._build_settings(tmp_dir),
                 agent=self._build_agent(),
                 store=store,
                 cli_registry=_FakeRegistry(runner),
-                message_sender=message_sender,
+                communication_channel=communication_channel,
             )
 
             result = await executor.execute_prompt(
@@ -181,7 +184,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.status, "succeeded")
             self.assertEqual(result.session_id, "sess-1")
             self.assertEqual(store.get_workspace_session_id("agent-a", "conv_1", "ou_1", "default"), "sess-1")
-            self.assertEqual(message_sender.messages[-1][2], "done")
+            self.assertEqual(communication_channel.messages[-1][2], "done")
             store.close()
 
     async def test_execute_workspace_task_records_run_and_reschedule(self) -> None:
@@ -215,7 +218,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 agent=self._build_agent(),
                 store=store,
                 cli_registry=_FakeRegistry(runner),
-                message_sender=_FakeMessageSender(),
+                communication_channel=_FakeCommunicationChannel(),
             )
 
             result = await executor.execute_workspace_task(
@@ -258,7 +261,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 agent=self._build_agent(),
                 store=store,
                 cli_registry=_FakeRegistry(runner),
-                message_sender=_FakeMessageSender(),
+                communication_channel=_FakeCommunicationChannel(),
             )
 
             recorded = executor.record_observation(
@@ -331,7 +334,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 agent=self._build_agent(),
                 store=store,
                 cli_registry=_FakeRegistry(runner),
-                message_sender=_FakeMessageSender(),
+                communication_channel=_FakeCommunicationChannel(),
             )
 
             await executor.execute_prompt(
@@ -408,7 +411,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 agent=self._build_agent(),
                 store=store,
                 cli_registry=_FakeRegistry(runner),
-                message_sender=_FakeMessageSender(),
+                communication_channel=_FakeCommunicationChannel(),
             )
 
             result = await executor.execute_workspace_task(
@@ -449,13 +452,13 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 CliRunResult(session_id="sess-1", answer="done", raw_output="")
             )
             registry = _FakeRegistry(runner)
-            message_sender = _FakeMessageSender()
+            communication_channel = _FakeCommunicationChannel()
             executor = TaskExecutor(
                 settings=self._build_settings(tmp_dir),
                 agent=self._build_agent(),
                 store=store,
                 cli_registry=registry,
-                message_sender=message_sender,
+                communication_channel=communication_channel,
             )
             chat = ChatService(
                 settings=self._build_settings(tmp_dir),
@@ -463,7 +466,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 store=store,
                 workspace_manager=_FakeWorkspaceManager(),
                 cli_registry=registry,
-                message_sender=message_sender,
+                communication_channel=communication_channel,
                 task_executor=executor,
             )
 
@@ -480,7 +483,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 )
             )
 
-            self.assertIn("CLI provider updated.", message_sender.messages[-1][2])
+            self.assertIn("CLI provider updated.", communication_channel.messages[-1][2])
 
             await chat.handle_message(
                 InboundMessage(
@@ -526,14 +529,14 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 CliRunResult(session_id="sess-1", answer="first step done", raw_output="")
             )
             registry = _FakeRegistry(runner)
-            message_sender = _FakeMessageSender()
+            communication_channel = _FakeCommunicationChannel()
             settings = self._build_settings(tmp_dir)
             executor = TaskExecutor(
                 settings=settings,
                 agent=self._build_agent(),
                 store=store,
                 cli_registry=registry,
-                message_sender=message_sender,
+                communication_channel=communication_channel,
             )
             chat = ChatService(
                 settings=settings,
@@ -541,7 +544,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 store=store,
                 workspace_manager=_FakeWorkspaceManager(),
                 cli_registry=registry,
-                message_sender=message_sender,
+                communication_channel=communication_channel,
                 task_executor=executor,
             )
 
@@ -559,8 +562,8 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             )
             await asyncio.sleep(0)
 
-            self.assertIn("Task created.", message_sender.messages[0][2])
-            self.assertIn("First run: starting now", message_sender.messages[0][2])
+            self.assertIn("Task created.", communication_channel.messages[0][2])
+            self.assertIn("First run: starting now", communication_channel.messages[0][2])
             self.assertEqual(runner.calls[0][2], None)
             self.assertTrue(runner.calls[0][0].rstrip().endswith("Keep improving"))
 
@@ -568,7 +571,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(tasks), 1)
             self.assertEqual(tasks[0].status, "running")
             self.assertIsNotNone(tasks[0].next_run_at)
-            self.assertIn("first step done", message_sender.messages[-1][2])
+            self.assertIn("first step done", communication_channel.messages[-1][2])
             store.close()
 
     async def test_archive_daily_command_updates_backup_schedule(self) -> None:
@@ -592,13 +595,13 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 CliRunResult(session_id="sess-1", answer="done", raw_output="")
             )
             registry = _FakeRegistry(runner)
-            message_sender = _FakeMessageSender()
+            communication_channel = _FakeCommunicationChannel()
             executor = TaskExecutor(
                 settings=self._build_settings(tmp_dir),
                 agent=self._build_agent(),
                 store=store,
                 cli_registry=registry,
-                message_sender=message_sender,
+                communication_channel=communication_channel,
             )
             archive_service = WorkspaceArchiveService(
                 store=store,
@@ -611,7 +614,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 store=store,
                 workspace_manager=_FakeWorkspaceManager(),
                 cli_registry=registry,
-                message_sender=message_sender,
+                communication_channel=communication_channel,
                 task_executor=executor,
                 archive_service=archive_service,
             )
@@ -629,7 +632,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 )
             )
 
-            self.assertIn("Archive schedule updated.", message_sender.messages[-1][2])
+            self.assertIn("Archive schedule updated.", communication_channel.messages[-1][2])
             self.assertEqual(store.get_app_setting("archive.daily_time"), "03:15")
             self.assertEqual(archive_service.daily_time, "03:15")
             store.close()

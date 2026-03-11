@@ -5,8 +5,8 @@ import logging
 import time
 from typing import Callable, Iterable, Optional
 
+from .communication.base import BaseCommunicationChannel
 from .communication.messages import InboundMessage
-from .communication.sender import MessageSender
 from .commands import Command
 from .config import AgentSettings, Settings
 from .models import (
@@ -30,14 +30,14 @@ class TaskCommandHandler:
         settings: Settings,
         agent: AgentSettings,
         store: StateStore,
-        message_sender: MessageSender,
+        communication_channel: BaseCommunicationChannel,
         task_executor: TaskExecutor,
         ensure_workspace: Callable[[], WorkspaceRecord],
     ) -> None:
         self.settings = settings
         self.agent = agent
         self.store = store
-        self.message_sender = message_sender
+        self.communication_channel = communication_channel
         self.task_executor = task_executor
         self.ensure_workspace = ensure_workspace
 
@@ -103,7 +103,7 @@ class TaskCommandHandler:
                 response=response,
                 context_key=task.task_id,
             )
-            await self.message_sender.send_text(message.reply_target, response)
+            await self.communication_channel.send_text(message.reply_target, response)
             self._start_background_task(
                 self.task_executor.execute_workspace_task(
                     task,

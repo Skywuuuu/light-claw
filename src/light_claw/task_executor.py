@@ -4,8 +4,8 @@ import asyncio
 import time
 from dataclasses import dataclass
 
+from .communication.base import BaseCommunicationChannel
 from .communication.messages import ReplyTarget
-from .communication.sender import MessageSender
 from .config import AgentSettings, Settings
 from .models import (
     TASK_STATUS_FAILED,
@@ -55,13 +55,13 @@ class TaskExecutor:
         agent: AgentSettings,
         store: StateStore,
         cli_registry: CliRunnerRegistry,
-        message_sender: MessageSender,
+        communication_channel: BaseCommunicationChannel,
     ) -> None:
         self.settings = settings
         self.agent = agent
         self.store = store
         self.cli_registry = cli_registry
-        self.message_sender = message_sender
+        self.communication_channel = communication_channel
 
     async def execute_prompt(
         self,
@@ -105,7 +105,7 @@ class TaskExecutor:
             queued_observations=queued_observations,
         )
         if reply_target is not None and announce_start:
-            await self.message_sender.send_text(
+            await self.communication_channel.send_text(
                 reply_target,
                 "Agent {} ({}) is working in {} ({}) with {}...".format(
                     self.agent.name,
@@ -147,7 +147,7 @@ class TaskExecutor:
                 context_key="cli_failed",
             )
             if reply_target is not None:
-                await self.message_sender.send_text(
+                await self.communication_channel.send_text(
                     reply_target,
                     "CLI run failed:\n{}".format(error),
                 )
@@ -175,7 +175,7 @@ class TaskExecutor:
                 context_key="cli_failed",
             )
             if reply_target is not None:
-                await self.message_sender.send_text(
+                await self.communication_channel.send_text(
                     reply_target,
                     "CLI run failed:\n{}".format(error),
                 )
@@ -194,7 +194,7 @@ class TaskExecutor:
             session_id=result.session_id or session_id,
         )
         if reply_target is not None and deliver_result:
-            await self.message_sender.send_text(reply_target, result.answer)
+            await self.communication_channel.send_text(reply_target, result.answer)
         return TaskExecutionResult(
             status=TASK_STATUS_SUCCEEDED,
             answer=result.answer,
@@ -317,7 +317,7 @@ class TaskExecutor:
             now = asyncio.get_running_loop().time()
             elapsed = int(now - started_at)
             idle = int(now - tracker.last_activity_at)
-            await self.message_sender.send_text(
+            await self.communication_channel.send_text(
                 reply_target,
                 "Agent {} is still running in {} ({}). Elapsed: {}s. Recent activity: {}s ago.".format(
                     self.agent.agent_id,
