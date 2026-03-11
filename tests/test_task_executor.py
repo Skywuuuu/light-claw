@@ -5,12 +5,11 @@ from pathlib import Path
 
 from light_claw.archive import WorkspaceArchiveService
 from light_claw.chat import ChatService
+from light_claw.communication.models import FeishuInboundMessage, FeishuReplyTarget
 from light_claw.config import AgentSettings, Settings
 from light_claw.models import (
     CliProviderInfo,
     CliRunResult,
-    FeishuInboundMessage,
-    FeishuReplyTarget,
     WorkspaceRecord,
 )
 from light_claw.store import StateStore

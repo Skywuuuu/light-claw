@@ -5,10 +5,10 @@ from typing import Dict, Protocol
 
 from .archive import WorkspaceArchiveService
 from .chat_commands import ChatCommandHandler
+from .communication.models import FeishuInboundMessage
 from .communication.sender import MessageSender
 from .commands import parse_command
 from .config import AgentSettings, Settings
-from .models import FeishuInboundMessage
 from .providers import CliRunnerRegistry
 from .store import StateStore
 from .task_executor import TaskExecutor
