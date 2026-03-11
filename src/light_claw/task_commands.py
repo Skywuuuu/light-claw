@@ -5,7 +5,7 @@ import logging
 import time
 from typing import Callable, Iterable, Optional
 
-from .communication.models import FeishuInboundMessage
+from .communication.events import InboundMessage
 from .communication.sender import MessageSender
 from .commands import Command
 from .config import AgentSettings, Settings
@@ -43,7 +43,7 @@ class TaskCommandHandler:
 
     async def handle(
         self,
-        message: FeishuInboundMessage,
+        message: InboundMessage,
         command: Command,
     ) -> Optional[str]:
         if command.kind == "task_list":
@@ -228,7 +228,7 @@ class TaskCommandHandler:
         self,
         *,
         workspace: WorkspaceRecord,
-        message: FeishuInboundMessage,
+        message: InboundMessage,
         command_kind: str,
         response: str,
         context_key: str | None = None,

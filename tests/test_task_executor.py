@@ -5,7 +5,7 @@ from pathlib import Path
 
 from light_claw.archive import WorkspaceArchiveService
 from light_claw.chat import ChatService
-from light_claw.communication.models import FeishuInboundMessage, FeishuReplyTarget
+from light_claw.communication.events import InboundMessage, ReplyTarget
 from light_claw.config import AgentSettings, Settings
 from light_claw.models import (
     CliProviderInfo,
@@ -175,7 +175,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 prompt="Do work",
                 conversation_id="conv_1",
                 conversation_owner_id="ou_1",
-                reply_target=FeishuReplyTarget("ou_1", "open_id"),
+                reply_target=ReplyTarget("ou_1", "open_id"),
             )
 
             self.assertEqual(result.status, "succeeded")
@@ -468,7 +468,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             )
 
             await chat.handle_message(
-                FeishuInboundMessage(
+                InboundMessage(
                     agent_id="agent-a",
                     bot_app_id="bot-app",
                     owner_id="ou_1",
@@ -476,14 +476,14 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                     message_id="msg-1",
                     message_type="text",
                     content="/cli use codex",
-                    reply_target=FeishuReplyTarget("ou_1", "open_id"),
+                    reply_target=ReplyTarget("ou_1", "open_id"),
                 )
             )
 
             self.assertIn("CLI provider updated.", message_sender.messages[-1][2])
 
             await chat.handle_message(
-                FeishuInboundMessage(
+                InboundMessage(
                     agent_id="agent-a",
                     bot_app_id="bot-app",
                     owner_id="ou_1",
@@ -491,7 +491,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                     message_id="msg-2",
                     message_type="text",
                     content="Continue",
-                    reply_target=FeishuReplyTarget("ou_1", "open_id"),
+                    reply_target=ReplyTarget("ou_1", "open_id"),
                 )
             )
 
@@ -546,7 +546,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             )
 
             await chat.handle_message(
-                FeishuInboundMessage(
+                InboundMessage(
                     agent_id="agent-a",
                     bot_app_id="bot-app",
                     owner_id="ou_1",
@@ -554,7 +554,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                     message_id="msg-1",
                     message_type="text",
                     content="/task create Keep improving",
-                    reply_target=FeishuReplyTarget("ou_1", "open_id"),
+                    reply_target=ReplyTarget("ou_1", "open_id"),
                 )
             )
             await asyncio.sleep(0)
@@ -617,7 +617,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             )
 
             await chat.handle_message(
-                FeishuInboundMessage(
+                InboundMessage(
                     agent_id="agent-a",
                     bot_app_id="bot-app",
                     owner_id="ou_1",
@@ -625,7 +625,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                     message_id="msg-1",
                     message_type="text",
                     content="/archive daily 03:15",
-                    reply_target=FeishuReplyTarget("ou_1", "open_id"),
+                    reply_target=ReplyTarget("ou_1", "open_id"),
                 )
             )
 

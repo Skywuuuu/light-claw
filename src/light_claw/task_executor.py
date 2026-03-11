@@ -4,7 +4,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 
-from .communication.models import FeishuReplyTarget
+from .communication.events import ReplyTarget
 from .communication.sender import MessageSender
 from .config import AgentSettings, Settings
 from .models import (
@@ -70,7 +70,7 @@ class TaskExecutor:
         prompt: str,
         conversation_id: str | None = None,
         conversation_owner_id: str | None = None,
-        reply_target: FeishuReplyTarget | None = None,
+        reply_target: ReplyTarget | None = None,
         announce_start: bool = True,
         deliver_result: bool = True,
     ) -> TaskExecutionResult:
@@ -307,7 +307,7 @@ class TaskExecutor:
 
     async def _send_heartbeat(
         self,
-        reply_target: FeishuReplyTarget,
+        reply_target: ReplyTarget,
         workspace: WorkspaceRecord,
         tracker: _ActivityTracker,
     ) -> None:
@@ -515,10 +515,10 @@ class TaskExecutor:
         return answer[:max_chars].rstrip() + "..."
 
     @staticmethod
-    def _task_reply_target(task: WorkspaceTaskRecord) -> FeishuReplyTarget | None:
+    def _task_reply_target(task: WorkspaceTaskRecord) -> ReplyTarget | None:
         if not task.notify_receive_id or not task.notify_receive_id_type:
             return None
-        return FeishuReplyTarget(
+        return ReplyTarget(
             receive_id=task.notify_receive_id,
             receive_id_type=task.notify_receive_id_type,
         )

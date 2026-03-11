@@ -9,7 +9,7 @@ import httpx
 import lark_oapi as lark
 
 from .base import BaseCommunicationChannel
-from .models import FeishuInboundMessage, FeishuReplyTarget
+from .events import InboundMessage, ReplyTarget
 
 if TYPE_CHECKING:
     from ..chat import ChatService
@@ -44,10 +44,12 @@ class FeishuMessageSender:
     async def close(self) -> None:
         await self.client.aclose()
 
-    async def send_text(self, target: FeishuReplyTarget, content: str) -> None:
+    async def send_text(self, target: ReplyTarget, content: str) -> None:
         text = content.strip()
         if not text:
             raise ValueError("Feishu text content is required")
+        if target.channel != "feishu":
+            raise ValueError("Feishu sender only supports feishu reply targets")
         for chunk in split_text_by_utf8_bytes(text):
             await self._send_message(
                 target=target,
@@ -57,7 +59,7 @@ class FeishuMessageSender:
 
     async def _send_message(
         self,
-        target: FeishuReplyTarget,
+        target: ReplyTarget,
         msg_type: str,
         content: Dict[str, Any],
     ) -> None:
@@ -179,19 +181,19 @@ def _build_inbound_message(
     raw_content: str,
     chat_id: Optional[str],
     chat_type: Optional[str],
-) -> Optional[FeishuInboundMessage]:
+) -> Optional[InboundMessage]:
     content = normalize_inbound_content(message_type, raw_content)
     if not content:
         return None
 
     if chat_type == "p2p" or not isinstance(chat_id, str) or not chat_id:
-        reply_target = FeishuReplyTarget(receive_id=owner_id, receive_id_type="open_id")
+        reply_target = ReplyTarget(receive_id=owner_id, receive_id_type="open_id")
         conversation_id = "feishu:user:" + owner_id
     else:
-        reply_target = FeishuReplyTarget(receive_id=chat_id, receive_id_type="chat_id")
+        reply_target = ReplyTarget(receive_id=chat_id, receive_id_type="chat_id")
         conversation_id = "feishu:chat:" + chat_id
 
-    return FeishuInboundMessage(
+    return InboundMessage(
         agent_id=agent_id,
         bot_app_id=bot_app_id,
         owner_id=owner_id,
@@ -210,7 +212,7 @@ def parse_inbound_message(
     *,
     agent_id: str,
     bot_app_id: str,
-) -> Optional[FeishuInboundMessage]:
+) -> Optional[InboundMessage]:
     event = payload.get("event")
     if not isinstance(event, dict):
         return None
@@ -253,7 +255,7 @@ def parse_long_connection_message(
     *,
     agent_id: str,
     bot_app_id: str,
-) -> Optional[FeishuInboundMessage]:
+) -> Optional[InboundMessage]:
     body = getattr(event, "event", None)
     if body is None:
         return None
