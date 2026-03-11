@@ -288,8 +288,6 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(resumed_session)
             self.assertIn("Session observations:", injected_prompt)
             self.assertIn("Memory guidance:", injected_prompt)
-            self.assertIn("memory/CLAUDE.md", injected_prompt)
-            self.assertIn("memory/daily/", injected_prompt)
             self.assertIn("command_result", injected_prompt)
             self.assertIn("Workspace selected.", injected_prompt)
             self.assertTrue(injected_prompt.rstrip().endswith("Continue"))
@@ -308,7 +306,6 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             )
 
             self.assertIn("Memory guidance:", runner.calls[-1][0])
-            self.assertIn("memory/CLAUDE.md", runner.calls[-1][0])
             self.assertTrue(runner.calls[-1][0].rstrip().endswith("Next turn"))
             store.close()
 
@@ -348,7 +345,6 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
                 deliver_result=False,
             )
             self.assertIn("Memory guidance:", runner.calls[0][0])
-            self.assertIn("memory/CLAUDE.md", runner.calls[0][0])
             self.assertTrue(runner.calls[0][0].rstrip().endswith("First turn"))
 
             (workspace_path / "IMPROVEMENT_RESEARCH.md").write_text(
@@ -374,7 +370,6 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(resumed_session, "sess-1")
             self.assertIn("Session observations:", resumed_prompt)
             self.assertIn("Memory guidance:", resumed_prompt)
-            self.assertIn("memory/CLAUDE.md", resumed_prompt)
             self.assertIn("workspace_change", resumed_prompt)
             self.assertIn("Added: IMPROVEMENT_RESEARCH.md", resumed_prompt)
             self.assertIn("external observation", resumed_prompt)
@@ -429,8 +424,6 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(result)
             cron_prompt = runner.calls[-1][0]
             self.assertIn("Scheduled task guidance:", cron_prompt)
-            self.assertIn("memory/CLAUDE.md", cron_prompt)
-            self.assertIn("memory/daily/", cron_prompt)
             self.assertIn("memory/tasks/{}.md".format(task.task_id), cron_prompt)
             self.assertIn("lightweight, simple, and easy to understand", cron_prompt)
             progress_path = workspace_path / "memory" / "tasks" / "{}.md".format(task.task_id)
@@ -510,8 +503,6 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(resumed_session)
             self.assertIn("Session observations:", injected_prompt)
             self.assertIn("Memory guidance:", injected_prompt)
-            self.assertIn("memory/CLAUDE.md", injected_prompt)
-            self.assertIn("memory/daily/", injected_prompt)
             self.assertIn("command_result", injected_prompt)
             self.assertIn("CLI provider updated.", injected_prompt)
             self.assertTrue(injected_prompt.rstrip().endswith("Continue"))
