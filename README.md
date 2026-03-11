@@ -159,6 +159,7 @@ src/light_claw/
   memory/
     __init__.py
     guidance.py
+    paths.py
     session_observations.py
     task_progress.py
   models.py
@@ -297,15 +298,11 @@ Each workspace contains:
 - `.light-claw/agent.json`
 - `.light-claw/skills.md`
 - `.light-claw/mcp.md`
-- `memory/identity.md`
-- `memory/profile.md`
-- `memory/preferences.md`
-- `memory/projects.md`
-- `memory/decisions.md`
-- `memory/open_loops.md`
+- `memory/CLAUDE.md`
 - `memory/daily/`
+- `memory/tasks/` (created on demand)
 
-The selected CLI runs inside the selected workspace, so the workspace instructions, memory files, and agent-local tool profile files are part of its local context.
+The selected CLI runs inside the selected workspace, so the workspace instructions, memory files, and agent-local tool profile files are part of its local context. `light-claw` now follows a happyclaw-style split: durable memory lives in `memory/CLAUDE.md`, while short-lived dated notes live under `memory/daily/YYYY-MM-DD.md`.
 
 `light-claw` also keeps a small per-session observation queue in the workspace. The next prompt for that conversation prepends any queued observations, such as workspace file changes, mutating command results, background task updates, and previous runtime failures. Workspace file changes are still computed from the last recorded snapshot, but they now flow through the same observation path as the other session events.
 
