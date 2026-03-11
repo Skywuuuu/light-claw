@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Optional
 
 from .archive import WorkspaceArchiveService
+from .communication.base import BaseCommunicationChannel
 from .communication.messages import InboundMessage
-from .communication.sender import MessageSender
 from .commands import Command, help_text
 from .config import AgentSettings, Settings
 from .models import WorkspaceRecord
@@ -23,7 +23,7 @@ class ChatCommandHandler:
         store: StateStore,
         workspace_manager: WorkspaceManager,
         cli_registry: CliRunnerRegistry,
-        message_sender: MessageSender,
+        communication_channel: BaseCommunicationChannel,
         task_executor: TaskExecutor,
         archive_service: WorkspaceArchiveService | None = None,
     ) -> None:
@@ -32,14 +32,14 @@ class ChatCommandHandler:
         self.store = store
         self.workspace_manager = workspace_manager
         self.cli_registry = cli_registry
-        self.message_sender = message_sender
+        self.communication_channel = communication_channel
         self.task_executor = task_executor
         self.archive_service = archive_service
         self.task_commands = TaskCommandHandler(
             settings=settings,
             agent=agent,
             store=store,
-            message_sender=message_sender,
+            communication_channel=communication_channel,
             task_executor=task_executor,
             ensure_workspace=self.ensure_workspace,
         )

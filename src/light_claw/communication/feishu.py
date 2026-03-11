@@ -23,26 +23,52 @@ RETRYABLE_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
 log = logging.getLogger("light_claw.communication.feishu")
 
 
-class FeishuMessageSender:
+class FeishuCommunicationChannel(BaseCommunicationChannel):
+    """Feishu communication channel for outbound replies and long-connection events."""
+
+    name = "feishu"
+
     def __init__(
         self,
+        *,
+        agent_id: str,
         app_id: str,
         app_secret: str,
         timeout_seconds: float = 15.0,
         max_retries: int = 3,
         retry_delay_seconds: float = 1.0,
+        on_running_change: Callable[[str, bool], None] | None = None,
     ) -> None:
+        super().__init__(
+            agent_id=agent_id,
+            on_running_change=on_running_change,
+        )
         self.app_id = app_id
         self.app_secret = app_secret
-        self.client = httpx.AsyncClient(timeout=timeout_seconds)
+        self._http_client = httpx.AsyncClient(timeout=timeout_seconds)
         self._token_lock = asyncio.Lock()
         self._tenant_access_token: Optional[str] = None
         self._tenant_access_token_expires_at: float = 0.0
         self.max_retries = max_retries
         self.retry_delay_seconds = retry_delay_seconds
+        self._ws_client = lark.ws.Client(
+            app_id,
+            app_secret,
+            event_handler=self._build_event_handler(),
+            log_level=lark.LogLevel.INFO,
+        )
+
+    def start(self) -> None:
+        self._require_inbound_binding()
+        log.info("Starting Feishu long connection client for agent %s", self.agent_id)
+        self._set_running(True)
+        try:
+            self._ws_client.start()
+        finally:
+            self._set_running(False)
 
     async def close(self) -> None:
-        await self.client.aclose()
+        await self._http_client.aclose()
 
     async def send_text(self, target: ReplyTarget, content: str) -> None:
         text = content.strip()
@@ -114,7 +140,7 @@ class FeishuMessageSender:
         last_error: Exception | None = None
         for attempt in range(1, attempts + 1):
             try:
-                response = await self.client.post(url, **kwargs)
+                response = await self._http_client.post(url, **kwargs)
                 if response.status_code not in RETRYABLE_STATUS_CODES:
                     response.raise_for_status()
                     return response
@@ -144,6 +170,24 @@ class FeishuMessageSender:
         if last_error is None:
             raise RuntimeError("Feishu request failed without an exception")
         raise last_error
+
+    def _build_event_handler(self) -> lark.EventDispatcherHandler:
+        return (
+            lark.EventDispatcherHandler.builder("", "")
+            .register_p2_im_message_receive_v1(self._handle_message_receive)
+            .build()
+        )
+
+    def _handle_message_receive(self, event: lark.im.v1.P2ImMessageReceiveV1) -> None:
+        inbound = parse_long_connection_message(
+            event,
+            agent_id=self.agent_id,
+            bot_app_id=self.app_id,
+        )
+        if inbound is None:
+            log.info("Ignored unsupported Feishu long connection event payload")
+            return
+        self._handle_inbound_message(inbound)
 
 
 def split_text_by_utf8_bytes(content: str, max_bytes: int = MAX_TEXT_CHUNK_BYTES) -> list[str]:
@@ -343,58 +387,3 @@ def parse_post_content(payload: Dict[str, Any]) -> str:
         if line:
             lines.append(line)
     return "\n".join(lines).strip()
-
-
-class FeishuLongConnectionClient(BaseCommunicationChannel):
-    """Feishu long-connection channel for inbound IM events."""
-
-    name = "feishu"
-
-    def __init__(
-        self,
-        agent_id: str,
-        app_id: str,
-        app_secret: str,
-        chat_service: "ChatService",
-        loop: asyncio.AbstractEventLoop,
-        on_running_change: Callable[[str, bool], None] | None = None,
-    ) -> None:
-        super().__init__(
-            agent_id=agent_id,
-            chat_service=chat_service,
-            loop=loop,
-            on_running_change=on_running_change,
-        )
-        self._app_id = app_id
-        self._client = lark.ws.Client(
-            app_id,
-            app_secret,
-            event_handler=self._build_event_handler(),
-            log_level=lark.LogLevel.INFO,
-        )
-
-    def start(self) -> None:
-        log.info("Starting Feishu long connection client for agent %s", self.agent_id)
-        self._set_running(True)
-        try:
-            self._client.start()
-        finally:
-            self._set_running(False)
-
-    def _build_event_handler(self) -> lark.EventDispatcherHandler:
-        return (
-            lark.EventDispatcherHandler.builder("", "")
-            .register_p2_im_message_receive_v1(self._handle_message_receive)
-            .build()
-        )
-
-    def _handle_message_receive(self, event: lark.im.v1.P2ImMessageReceiveV1) -> None:
-        inbound = parse_long_connection_message(
-            event,
-            agent_id=self.agent_id,
-            bot_app_id=self._app_id,
-        )
-        if inbound is None:
-            log.info("Ignored unsupported Feishu long connection event payload")
-            return
-        self._handle_inbound_message(inbound)

@@ -7,8 +7,8 @@ from typing import Any
 
 from .archive import WorkspaceArchiveService
 from .chat import ChatObserver, ChatService
-from .communication.feishu import FeishuMessageSender
-from .communication.sender import MessageSender
+from .communication.base import BaseCommunicationChannel
+from .communication.feishu import FeishuCommunicationChannel
 from .config import APP_NAME, AgentSettings, Settings
 from .cron import CronService
 from .heartbeat import WorkspaceHeartbeatService
@@ -25,7 +25,7 @@ log = logging.getLogger("light_claw.runtime_services")
 class AgentRuntime:
     agent: AgentSettings
     cli_registry: CliRunnerRegistry
-    message_sender: MessageSender
+    communication_channel: BaseCommunicationChannel
     task_executor: TaskExecutor
     chat_service: ChatService
 
@@ -220,16 +220,18 @@ def build_services(settings: Settings) -> RuntimeServices:
     task_executors: dict[str, TaskExecutor] = {}
     for agent in settings.agents:
         cli_registry = CliRunnerRegistry.from_settings(settings, agent)
-        message_sender = FeishuMessageSender(
+        communication_channel = FeishuCommunicationChannel(
+            agent_id=agent.agent_id,
             app_id=agent.feishu_app_id or "",
             app_secret=agent.feishu_app_secret or "",
+            on_running_change=health.mark_agent_connection,
         )
         task_executor = TaskExecutor(
             settings=settings,
             agent=agent,
             store=store,
             cli_registry=cli_registry,
-            message_sender=message_sender,
+            communication_channel=communication_channel,
         )
         chat_service = ChatService(
             settings=settings,
@@ -237,7 +239,7 @@ def build_services(settings: Settings) -> RuntimeServices:
             store=store,
             workspace_manager=workspace_manager,
             cli_registry=cli_registry,
-            message_sender=message_sender,
+            communication_channel=communication_channel,
             task_executor=task_executor,
             archive_service=archive_service,
             observer=health,
@@ -245,7 +247,7 @@ def build_services(settings: Settings) -> RuntimeServices:
         agent_runtimes[agent.agent_id] = AgentRuntime(
             agent=agent,
             cli_registry=cli_registry,
-            message_sender=message_sender,
+            communication_channel=communication_channel,
             task_executor=task_executor,
             chat_service=chat_service,
         )
@@ -303,5 +305,5 @@ async def shutdown_services(services: RuntimeServices) -> None:
         await services.cron_service.stop()
         services.health.mark_cron_stopped()
     for runtime in services.agent_runtimes.values():
-        await runtime.message_sender.close()
+        await runtime.communication_channel.close()
     services.store.close()

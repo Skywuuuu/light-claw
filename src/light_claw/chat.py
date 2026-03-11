@@ -5,8 +5,8 @@ from typing import Dict, Protocol
 
 from .archive import WorkspaceArchiveService
 from .chat_commands import ChatCommandHandler
+from .communication.base import BaseCommunicationChannel
 from .communication.messages import InboundMessage
-from .communication.sender import MessageSender
 from .commands import parse_command
 from .config import AgentSettings, Settings
 from .providers import CliRunnerRegistry
@@ -40,7 +40,7 @@ class ChatService:
         store: StateStore,
         workspace_manager: WorkspaceManager,
         cli_registry: CliRunnerRegistry,
-        message_sender: MessageSender,
+        communication_channel: BaseCommunicationChannel,
         task_executor: TaskExecutor,
         archive_service: WorkspaceArchiveService | None = None,
         observer: ChatObserver | None = None,
@@ -48,7 +48,7 @@ class ChatService:
         self.settings = settings
         self.agent = agent
         self.store = store
-        self.message_sender = message_sender
+        self.communication_channel = communication_channel
         self.task_executor = task_executor
         self.observer = observer
         self._conversation_locks: Dict[str, asyncio.Lock] = {}
@@ -58,7 +58,7 @@ class ChatService:
             store=store,
             workspace_manager=workspace_manager,
             cli_registry=cli_registry,
-            message_sender=message_sender,
+            communication_channel=communication_channel,
             task_executor=task_executor,
             archive_service=archive_service,
         )
@@ -85,7 +85,7 @@ class ChatService:
                     response = await self.command_handler.handle(message, command)
                     outcome = "command"
                     if response:
-                        await self.message_sender.send_text(message.reply_target, response)
+                        await self.communication_channel.send_text(message.reply_target, response)
                     return
                 outcome = await self._handle_prompt(message)
         except Exception:

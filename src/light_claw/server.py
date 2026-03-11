@@ -10,7 +10,6 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .communication.feishu import (
-    FeishuLongConnectionClient,
     parse_inbound_message,
     verify_token,
 )
@@ -156,20 +155,20 @@ async def run_long_connection(settings: Settings) -> None:
         await start_managed_services(services)
         loop = asyncio.get_running_loop()
         for runtime in services.agent_runtimes.values():
-            client = FeishuLongConnectionClient(
-                agent_id=runtime.agent.agent_id,
-                app_id=runtime.agent.feishu_app_id or "",
-                app_secret=runtime.agent.feishu_app_secret or "",
+            runtime.communication_channel.bind_inbound(
                 chat_service=runtime.chat_service,
                 loop=loop,
-                on_running_change=services.health.mark_agent_connection,
             )
-            long_connection_tasks.append(asyncio.create_task(asyncio.to_thread(client.start)))
+            long_connection_tasks.append(
+                asyncio.create_task(asyncio.to_thread(runtime.communication_channel.start))
+            )
 
         await asyncio.gather(probe_task, *long_connection_tasks)
     finally:
         probe_server.should_exit = True
         await asyncio.gather(probe_task, return_exceptions=True)
+        for runtime in services.agent_runtimes.values():
+            runtime.communication_channel.stop()
         for task in long_connection_tasks:
             task.cancel()
         await asyncio.gather(*long_connection_tasks, return_exceptions=True)
