@@ -2,7 +2,7 @@
 
 `light-claw` is a Python service for running long-lived coding agents behind Feishu on the same machine.
 
-- Feishu webhook ingress + outbound reply API
+- Feishu long-connection ingress + outbound reply API
 - Persistent workspace/session state in SQLite
 - One persistent workspace per agent
 - One Feishu app/bot per agent
@@ -14,7 +14,6 @@
 
 ## What this MVP supports
 
-- Feishu event webhook mode
 - Feishu multi-agent long-connection mode on a single host
 - Text conversations through the selected CLI provider
 - Pluggable CLI provider registry, with Codex implemented and reserved slots for Claude Code and custom CLIs
@@ -46,7 +45,6 @@ flowchart TB
   user[User in Feishu]
 
   subgraph ingress[Feishu ingress + replies]
-    webhook[Webhook events\nPOST /feishu/events]
     longconn[Long-connection clients\none per agent]
     reply_api[Feishu reply API]
   end
@@ -83,9 +81,7 @@ flowchart TB
     codex[Codex runner\nnew run / resume existing session]
   end
 
-  user --> webhook
   user --> longconn
-  webhook --> app
   longconn --> app
   app --> health
   app --> chat
@@ -128,7 +124,7 @@ flowchart TB
 
 How the pieces connect:
 
-- Feishu messages enter through webhook mode or long-connection mode, but both paths end up in the same `ChatService`.
+- Feishu messages enter through the long-connection clients and end up in the same `ChatService`.
 - `ChatService` either handles a slash command immediately or forwards the prompt to `TaskExecutor`.
 - `TaskExecutor` is the single execution path for foreground chat, heartbeat-resumed tasks, and cron-triggered tasks, so session reuse, observations, memory guidance, and CLI execution all stay in one place.
 - `server.py` now stays focused on FastAPI entrypoints and Feishu request handling, while `runtime_services.py` owns runtime wiring, health state, and background service lifecycle.
@@ -224,12 +220,11 @@ cp .env.example .env
    Single-agent compatibility mode:
    - set `FEISHU_APP_ID`
    - set `FEISHU_APP_SECRET`
-   - set `FEISHU_VERIFICATION_TOKEN` for webhook mode
 
    Multi-agent mode:
    - set `LIGHT_CLAW_AGENTS_FILE=examples/agents.example.json`
    - create one Feishu app per agent
-   - store one `app_id` / `app_secret` / `verification_token` tuple per agent in that JSON file
+   - store one `app_id` / `app_secret` pair per agent in that JSON file
 
    Optional archive settings:
    - `LIGHT_CLAW_ARCHIVE_ENABLED=true` enables workspace archive sync.
@@ -264,27 +259,15 @@ uv run uvicorn light_claw.server:create_app --factory --host 0.0.0.0 --port 8000
 
 ## Feishu app configuration
 
-This MVP supports both Feishu delivery modes through `FEISHU_EVENT_MODE`.
+This MVP supports Feishu long-connection mode through `FEISHU_EVENT_MODE=long_connection`.
 
-### Webhook mode
+Use `FEISHU_EVENT_MODE=long_connection` when you want the process to keep a websocket connection to Feishu.
 
-Use `FEISHU_EVENT_MODE=webhook` when you want Feishu to call your HTTP server.
-
-- Event subscription URL: `POST /feishu/events`
 - Health checks:
   - `GET /livez`
   - `GET /readyz`
   - `GET /healthz`
   - `GET /healthz/details`
-- Enable at least `im.message.receive_v1`
-- With multiple agents, each agent uses its own verification token from `LIGHT_CLAW_AGENTS_FILE`
-- Start with `uv run light-claw` or `uv run uvicorn light_claw.server:create_app --factory --host 0.0.0.0 --port 8000`
-
-### Long-connection mode
-
-Use `FEISHU_EVENT_MODE=long_connection` when you want the process to keep a websocket connection to Feishu.
-
-- `FEISHU_VERIFICATION_TOKEN` is not required
 - The process starts one long-connection-capable communication channel per configured agent
 - The same process also serves local health endpoints on `HOST:PORT`
 - Start with `uv run light-claw`

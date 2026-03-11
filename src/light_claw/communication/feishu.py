@@ -230,12 +230,6 @@ def split_text_by_utf8_bytes(content: str, max_bytes: int = MAX_TEXT_CHUNK_BYTES
     return chunks
 
 
-def verify_token(expected: Optional[str], actual: Optional[str]) -> bool:
-    if not expected:
-        return True
-    return bool(actual) and actual == expected
-
-
 def _build_inbound_message(
     agent_id: str,
     bot_app_id: str,
@@ -266,49 +260,6 @@ def _build_inbound_message(
         message_type=message_type,
         content=content,
         reply_target=reply_target,
-        chat_id=chat_id if isinstance(chat_id, str) else None,
-        chat_type=chat_type if isinstance(chat_type, str) else None,
-    )
-
-
-def parse_inbound_message(
-    payload: Dict[str, Any],
-    *,
-    agent_id: str,
-    bot_app_id: str,
-) -> Optional[InboundMessage]:
-    event = payload.get("event")
-    if not isinstance(event, dict):
-        return None
-
-    message = event.get("message")
-    sender = event.get("sender")
-    if not isinstance(message, dict) or not isinstance(sender, dict):
-        return None
-
-    sender_id = sender.get("sender_id")
-    if not isinstance(sender_id, dict):
-        return None
-
-    owner_id = sender_id.get("open_id")
-    message_id = message.get("message_id")
-    message_type = message.get("message_type")
-    raw_content = message.get("content")
-    chat_id = message.get("chat_id")
-    chat_type = message.get("chat_type")
-
-    if not isinstance(owner_id, str) or not isinstance(message_id, str):
-        return None
-    if not isinstance(message_type, str) or not isinstance(raw_content, str):
-        return None
-
-    return _build_inbound_message(
-        agent_id=agent_id,
-        bot_app_id=bot_app_id,
-        owner_id=owner_id,
-        message_id=message_id,
-        message_type=message_type,
-        raw_content=raw_content,
         chat_id=chat_id if isinstance(chat_id, str) else None,
         chat_type=chat_type if isinstance(chat_type, str) else None,
     )

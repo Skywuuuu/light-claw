@@ -158,17 +158,15 @@ class SettingsCompatibilityTest(unittest.TestCase):
                     "FEISHU_EVENT_MODE": "long_connection",
                     "FEISHU_APP_ID": "cli_test",
                     "FEISHU_APP_SECRET": "secret",
-                    "FEISHU_VERIFICATION_TOKEN": "",
                 },
                 clear=False,
             ):
                 settings = Settings.from_env(base_dir=Path(tmp_dir) / "repo")
 
         self.assertEqual(settings.feishu_event_mode, "long_connection")
-        self.assertIsNone(settings.feishu_verification_token)
         self.assertEqual(settings.primary_agent.agent_id, "default")
 
-    def test_webhook_mode_requires_verification_token(self) -> None:
+    def test_webhook_mode_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             with patch.dict(
                 os.environ,
@@ -178,11 +176,10 @@ class SettingsCompatibilityTest(unittest.TestCase):
                     "FEISHU_EVENT_MODE": "webhook",
                     "FEISHU_APP_ID": "cli_test",
                     "FEISHU_APP_SECRET": "secret",
-                    "FEISHU_VERIFICATION_TOKEN": "",
                 },
                 clear=False,
             ):
-                with self.assertRaisesRegex(ValueError, "FEISHU_VERIFICATION_TOKEN"):
+                with self.assertRaisesRegex(ValueError, "FEISHU_EVENT_MODE"):
                     Settings.from_env(base_dir=Path(tmp_dir) / "repo")
 
     def test_archive_interval_must_be_positive(self) -> None:
@@ -240,7 +237,6 @@ class SettingsCompatibilityTest(unittest.TestCase):
                       "name": "Writer",
                       "app_id": "cli_writer",
                       "app_secret": "writer_secret",
-                      "verification_token": "writer_token",
                       "skills_path": "skills/writer.md"
                     },
                     {
@@ -248,7 +244,6 @@ class SettingsCompatibilityTest(unittest.TestCase):
                       "name": "Reviewer",
                       "app_id": "cli_reviewer",
                       "app_secret": "reviewer_secret",
-                      "verification_token": "reviewer_token",
                       "mcp_config_path": "mcp/reviewer.json"
                     }
                   ]
@@ -260,7 +255,7 @@ class SettingsCompatibilityTest(unittest.TestCase):
                 os.environ,
                 {
                     "FEISHU_ENABLED": "true",
-                    "FEISHU_EVENT_MODE": "webhook",
+                    "FEISHU_EVENT_MODE": "long_connection",
                     "LIGHT_CLAW_AGENTS_FILE": str(agents_file),
                 },
                 clear=False,

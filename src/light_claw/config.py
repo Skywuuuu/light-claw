@@ -93,11 +93,8 @@ def _read_optional_str(
 
 
 def _read_feishu_event_mode(environ: Mapping[str, str] | None = None) -> str:
-    raw = _read_str("FEISHU_EVENT_MODE", "webhook", environ=environ).strip().lower()
+    raw = _read_str("FEISHU_EVENT_MODE", "long_connection", environ=environ).strip().lower()
     mapping = {
-        "webhook": "webhook",
-        "http": "webhook",
-        "callback": "webhook",
         "long_connection": "long_connection",
         "long-connection": "long_connection",
         "longconnection": "long_connection",
@@ -158,7 +155,6 @@ class AgentSettings:
     name: str
     feishu_app_id: Optional[str]
     feishu_app_secret: Optional[str]
-    feishu_verification_token: Optional[str]
     allow_from: str
     default_workspace_name: str
     default_cli_provider: str
@@ -200,7 +196,6 @@ class Settings:
     feishu_event_mode: str
     feishu_app_id: Optional[str]
     feishu_app_secret: Optional[str]
-    feishu_verification_token: Optional[str]
     allow_from: str
     default_workspace_name: str
     agents: tuple[AgentSettings, ...]
@@ -324,10 +319,6 @@ class Settings:
                 "FEISHU_APP_SECRET",
                 environ=environ,
             ),
-            feishu_verification_token=_read_optional_str(
-                "FEISHU_VERIFICATION_TOKEN",
-                environ=environ,
-            ),
             allow_from=allow_from,
             default_workspace_name=default_workspace_name,
             agents=tuple(
@@ -361,10 +352,6 @@ class Settings:
                             "FEISHU_APP_SECRET",
                             environ=environ,
                         ),
-                        "feishu_verification_token": _read_optional_str(
-                            "FEISHU_VERIFICATION_TOKEN",
-                            environ=environ,
-                        ),
                     },
                 )
             ),
@@ -380,10 +367,8 @@ class Settings:
             self.archive_dir.mkdir(parents=True, exist_ok=True)
 
     def validate(self) -> None:
-        if self.feishu_event_mode not in {"webhook", "long_connection"}:
-            raise ValueError(
-                "FEISHU_EVENT_MODE must be one of: webhook, long_connection"
-            )
+        if self.feishu_event_mode != "long_connection":
+            raise ValueError("FEISHU_EVENT_MODE must be long_connection")
         if not self.default_cli_provider:
             raise ValueError("DEFAULT_CLI_PROVIDER must not be empty")
         if self.archive_interval_seconds <= 0:
@@ -421,8 +406,6 @@ class Settings:
                     missing.append("FEISHU_APP_ID")
                 if not agent.feishu_app_secret:
                     missing.append("FEISHU_APP_SECRET")
-                if self.feishu_event_mode == "webhook" and not agent.feishu_verification_token:
-                    missing.append("FEISHU_VERIFICATION_TOKEN")
                 if missing:
                     raise ValueError(
                         "Missing required Feishu settings for agent {}: {}".format(
@@ -469,7 +452,6 @@ def _load_agents(
                 name="Default Agent",
                 feishu_app_id=defaults.get("feishu_app_id"),
                 feishu_app_secret=defaults.get("feishu_app_secret"),
-                feishu_verification_token=defaults.get("feishu_verification_token"),
                 allow_from=str(defaults["allow_from"]),
                 default_workspace_name=str(defaults["default_workspace_name"]),
                 default_cli_provider=str(defaults["default_cli_provider"]),
@@ -525,10 +507,6 @@ def _load_agents(
                 ),
                 feishu_app_secret=_coerce_optional_str(
                     entry.get("feishu_app_secret") or entry.get("app_secret")
-                ),
-                feishu_verification_token=_coerce_optional_str(
-                    entry.get("feishu_verification_token")
-                    or entry.get("verification_token")
                 ),
                 allow_from=allow_from or "*",
                 default_workspace_name=default_workspace_name or "default",

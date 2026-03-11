@@ -3,20 +3,15 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from .communication.feishu import (
-    parse_inbound_message,
-    verify_token,
-)
-from .config import AgentSettings, APP_NAME, Settings
+from .config import APP_NAME, Settings
 from .memory.api import create_memory_router
 from .runtime_services import (
-    RuntimeHealth,
     RuntimeServices,
     build_services,
     shutdown_services,
@@ -70,59 +65,10 @@ def create_app(
         return {"ok": bool(details["ready"])}
 
     @app.get("/healthz/details")
-    async def healthz_details() -> dict[str, Any]:
+    async def healthz_details() -> dict[str, object]:
         return app.state.services.health.snapshot(
             store_ok=app.state.services.store.ping()
         )
-
-    @app.post("/feishu/events")
-    async def feishu_events(request: Request) -> dict[str, Any]:
-        if not settings.feishu_enabled:
-            raise HTTPException(status_code=503, detail="Feishu is disabled")
-        if settings.feishu_event_mode != "webhook":
-            raise HTTPException(
-                status_code=503,
-                detail="Feishu webhook endpoint is disabled in long_connection mode",
-            )
-
-        payload = await request.json()
-        if not isinstance(payload, dict):
-            raise HTTPException(status_code=400, detail="invalid payload")
-
-        if payload.get("type") == "url_verification":
-            agent = _resolve_verification_agent(settings, payload)
-            if agent is None:
-                raise HTTPException(status_code=403, detail="token mismatch")
-            challenge = payload.get("challenge")
-            if not isinstance(challenge, str):
-                raise HTTPException(status_code=400, detail="missing challenge")
-            return {"challenge": challenge}
-
-        header = payload.get("header")
-        if not isinstance(header, dict):
-            return {"code": 0, "msg": "ignored"}
-        agent = _resolve_agent_from_header(settings, header)
-        if agent is None:
-            return {"code": 0, "msg": "ignored"}
-        if not verify_token(agent.feishu_verification_token, header.get("token")):
-            raise HTTPException(status_code=403, detail="token mismatch")
-
-        event_type = header.get("event_type")
-        if event_type != "im.message.receive_v1":
-            return {"code": 0, "msg": "ignored"}
-
-        inbound = parse_inbound_message(
-            payload,
-            agent_id=agent.agent_id,
-            bot_app_id=agent.feishu_app_id or "",
-        )
-        if inbound is None:
-            return {"code": 0, "msg": "ignored"}
-
-        runtime = app.state.services.agent_runtimes[agent.agent_id]
-        task = asyncio.create_task(runtime.chat_service.handle_message(inbound))
-        task.add_done_callback(lambda current: _log_task_exception(current, app.state.services.health))
-        return {"code": 0, "msg": "success"}
 
     return app
 
@@ -135,7 +81,7 @@ def main() -> None:
         settings.feishu_event_mode,
         ",".join(agent.agent_id for agent in settings.agents),
     )
-    if settings.feishu_event_mode == "long_connection":
+    if settings.feishu_enabled:
         asyncio.run(run_long_connection(settings))
         return
     uvicorn.run(create_app(settings), host=settings.host, port=settings.port)
@@ -175,32 +121,3 @@ async def run_long_connection(settings: Settings) -> None:
             task.cancel()
         await asyncio.gather(*long_connection_tasks, return_exceptions=True)
         await shutdown_services(services)
-
-
-def _resolve_verification_agent(
-    settings: Settings,
-    payload: dict[str, Any],
-) -> AgentSettings | None:
-    token = payload.get("token")
-    for agent in settings.agents:
-        if verify_token(agent.feishu_verification_token, token):
-            return agent
-    return None
-
-
-def _resolve_agent_from_header(
-    settings: Settings,
-    header: dict[str, Any],
-) -> AgentSettings | None:
-    app_id = header.get("app_id")
-    if not isinstance(app_id, str) or not app_id:
-        return None
-    return settings.get_agent_by_app_id(app_id)
-
-
-def _log_task_exception(task: asyncio.Task[Any], health: RuntimeHealth) -> None:
-    try:
-        task.result()
-    except Exception:
-        health.mark_background_error()
-        log.exception("background task failed")
