@@ -7,7 +7,7 @@ from .archive import WorkspaceArchiveService
 from .chat_commands import ChatCommandHandler
 from .commands import parse_command
 from .config import AgentSettings, Settings
-from .integrations.feishu import FeishuClient
+from .message_sender import MessageSender
 from .models import FeishuInboundMessage
 from .providers import CliRunnerRegistry
 from .store import StateStore
@@ -40,7 +40,7 @@ class ChatService:
         store: StateStore,
         workspace_manager: WorkspaceManager,
         cli_registry: CliRunnerRegistry,
-        feishu_client: FeishuClient,
+        message_sender: MessageSender,
         task_executor: TaskExecutor,
         archive_service: WorkspaceArchiveService | None = None,
         observer: ChatObserver | None = None,
@@ -48,7 +48,7 @@ class ChatService:
         self.settings = settings
         self.agent = agent
         self.store = store
-        self.feishu_client = feishu_client
+        self.message_sender = message_sender
         self.task_executor = task_executor
         self.observer = observer
         self._conversation_locks: Dict[str, asyncio.Lock] = {}
@@ -58,7 +58,7 @@ class ChatService:
             store=store,
             workspace_manager=workspace_manager,
             cli_registry=cli_registry,
-            feishu_client=feishu_client,
+            message_sender=message_sender,
             task_executor=task_executor,
             archive_service=archive_service,
         )
@@ -85,7 +85,7 @@ class ChatService:
                     response = await self.command_handler.handle(message, command)
                     outcome = "command"
                     if response:
-                        await self.feishu_client.send_text(message.reply_target, response)
+                        await self.message_sender.send_text(message.reply_target, response)
                     return
                 outcome = await self._handle_prompt(message)
         except Exception:

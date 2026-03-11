@@ -5,7 +5,7 @@ from typing import Optional
 from .archive import WorkspaceArchiveService
 from .commands import Command, help_text
 from .config import AgentSettings, Settings
-from .integrations.feishu import FeishuClient
+from .message_sender import MessageSender
 from .models import FeishuInboundMessage, WorkspaceRecord
 from .providers import CliRunnerRegistry
 from .store import StateStore
@@ -22,7 +22,7 @@ class ChatCommandHandler:
         store: StateStore,
         workspace_manager: WorkspaceManager,
         cli_registry: CliRunnerRegistry,
-        feishu_client: FeishuClient,
+        message_sender: MessageSender,
         task_executor: TaskExecutor,
         archive_service: WorkspaceArchiveService | None = None,
     ) -> None:
@@ -31,14 +31,14 @@ class ChatCommandHandler:
         self.store = store
         self.workspace_manager = workspace_manager
         self.cli_registry = cli_registry
-        self.feishu_client = feishu_client
+        self.message_sender = message_sender
         self.task_executor = task_executor
         self.archive_service = archive_service
         self.task_commands = TaskCommandHandler(
             settings=settings,
             agent=agent,
             store=store,
-            feishu_client=feishu_client,
+            message_sender=message_sender,
             task_executor=task_executor,
             ensure_workspace=self.ensure_workspace,
         )

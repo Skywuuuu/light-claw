@@ -60,7 +60,7 @@ flowchart TB
       commands[Slash commands\n/cli /task /cron /reset]
       taskexec[TaskExecutor]
       registry[CliRunnerRegistry]
-      feishu_client[FeishuClient]
+      message_sender[MessageSender\nFeishu implementation]
     end
 
     subgraph background[Background loops]
@@ -92,8 +92,8 @@ flowchart TB
 
   chat --> commands
   chat --> taskexec
-  chat --> feishu_client
-  feishu_client --> reply_api
+  chat --> message_sender
+  message_sender --> reply_api
   reply_api --> user
 
   commands --> store
@@ -113,7 +113,7 @@ flowchart TB
   taskexec --> observations
   taskexec --> progress
   taskexec --> registry
-  taskexec --> feishu_client
+  taskexec --> message_sender
 
   registry --> provider
   provider --> codex
@@ -158,6 +158,7 @@ src/light_claw/
     __init__.py
     feishu.py
     feishu_long_connection.py
+  message_sender.py
   models.py
   providers/
     __init__.py
