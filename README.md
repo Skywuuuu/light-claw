@@ -72,7 +72,7 @@ flowchart TB
 
   subgraph state[Persistent state + local files]
     store[StateStore on SQLite\nworkspace / conversation_state / conversation_session /\nworkspace_task / task_run / scheduled_task / inbound_message]
-    workspace_dir[Workspace directory\nAGENTS.md / README.md / memory/ / .light-claw/]
+    workspace_dir[Workspace directory\nAGENTS.md / memory/ / .light-claw/]
     observations[Session observations + schedule state\n.light-claw/session-observations/\n.light-claw/scheduled-tasks/]
     progress[Task progress notes\nmemory/tasks/task-id.md]
     archive_dir[Archive mirror\n../light-claw-data/]
@@ -181,7 +181,6 @@ Runtime data is stored under `.data/` by default:
   workspaces/
     <agent>/
       AGENTS.md
-      README.md
       .light-claw/
       memory/
 ```
@@ -193,7 +192,6 @@ Workspace content is also archived to a sibling `light-claw-data/` directory by 
   workspaces/
     <agent>/
       AGENTS.md
-      README.md
       .light-claw/
       memory/
 ```
@@ -293,7 +291,6 @@ The first user message automatically gets a default workspace if none exists.
 Each workspace contains:
 
 - `AGENTS.md`
-- `README.md`
 - `.light-claw/agent.json`
 - `.light-claw/skills.md`
 - `.light-claw/mcp.md`
@@ -303,7 +300,7 @@ Each workspace contains:
 - `memory/projects.md`
 - `memory/decisions.md`
 - `memory/open_loops.md`
-- `memory/daily/README.md`
+- `memory/daily/`
 
 The selected CLI runs inside the selected workspace, so the workspace instructions, memory files, and agent-local tool profile files are part of its local context.
 

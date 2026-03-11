@@ -21,7 +21,7 @@ class WorkspaceManagerTest(unittest.TestCase):
             self.assertTrue((workspace.path / ".light-claw" / "agent.json").exists())
             self.assertTrue((workspace.path / "memory").is_dir())
             self.assertTrue((workspace.path / "memory" / "identity.md").exists())
-            self.assertTrue((workspace.path / "memory" / "daily" / "README.md").exists())
+            self.assertTrue((workspace.path / "memory" / "daily").is_dir())
             self.assertEqual(
                 workspace_relative_dir("writer"),
                 Path("writer"),
