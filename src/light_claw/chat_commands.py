@@ -8,7 +8,7 @@ from .communication.messages import InboundMessage
 from .commands import Command, help_text
 from .config import AgentSettings, Settings
 from .models import WorkspaceRecord
-from .providers import CliRunnerRegistry
+from .runtime import CliRuntimeRegistry
 from .store import StateStore
 from .task_commands import TaskCommandHandler
 from .task_executor import TaskExecutor
@@ -22,7 +22,7 @@ class ChatCommandHandler:
         agent: AgentSettings,
         store: StateStore,
         workspace_manager: WorkspaceManager,
-        cli_registry: CliRunnerRegistry,
+        cli_registry: CliRuntimeRegistry,
         communication_channel: BaseCommunicationChannel,
         task_executor: TaskExecutor,
         archive_service: WorkspaceArchiveService | None = None,

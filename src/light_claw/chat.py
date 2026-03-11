@@ -9,7 +9,7 @@ from .communication.base import BaseCommunicationChannel
 from .communication.messages import InboundMessage
 from .commands import parse_command
 from .config import AgentSettings, Settings
-from .providers import CliRunnerRegistry
+from .runtime import CliRuntimeRegistry
 from .store import StateStore
 from .task_executor import TaskExecutor
 from .workspaces import WorkspaceManager
@@ -39,7 +39,7 @@ class ChatService:
         agent: AgentSettings,
         store: StateStore,
         workspace_manager: WorkspaceManager,
-        cli_registry: CliRunnerRegistry,
+        cli_registry: CliRuntimeRegistry,
         communication_channel: BaseCommunicationChannel,
         task_executor: TaskExecutor,
         archive_service: WorkspaceArchiveService | None = None,

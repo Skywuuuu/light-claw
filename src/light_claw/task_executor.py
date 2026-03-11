@@ -15,7 +15,7 @@ from .models import (
     WorkspaceRecord,
     WorkspaceTaskRecord,
 )
-from .providers import CliRunnerError, CliRunnerRegistry
+from .runtime import CliRuntimeError, CliRuntimeRegistry
 from .session_observations import (
     build_workspace_observation_entry,
     clear_observations,
@@ -54,7 +54,7 @@ class TaskExecutor:
         settings: Settings,
         agent: AgentSettings,
         store: StateStore,
-        cli_registry: CliRunnerRegistry,
+        cli_registry: CliRuntimeRegistry,
         communication_channel: BaseCommunicationChannel,
     ) -> None:
         self.settings = settings
@@ -122,14 +122,14 @@ class TaskExecutor:
                 self._send_heartbeat(reply_target, workspace, tracker)
             )
         try:
-            runner = self.cli_registry.get_runner(workspace.cli_provider)
-            result = await runner.run(
+            runtime = self.cli_registry.get_runtime(workspace.cli_provider)
+            result = await runtime.run(
                 prompt=prompt,
                 workspace_dir=workspace.path,
                 session_id=session_id,
                 on_activity=tracker.touch,
             )
-        except CliRunnerError as exc:
+        except CliRuntimeError as exc:
             await self._stop_heartbeat(heartbeat_task)
             self._persist_workspace_snapshot(
                 workspace=workspace,
