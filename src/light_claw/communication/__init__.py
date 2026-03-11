@@ -1,5 +1,5 @@
 from .base import BaseCommunicationChannel
-from .events import InboundMessage, ReplyTarget
+from .messages import InboundMessage, ReplyTarget
 from .feishu import (
     FEISHU_API_BASE,
     MAX_TEXT_CHUNK_BYTES,

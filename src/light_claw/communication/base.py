@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from concurrent.futures import Future
 from typing import TYPE_CHECKING, Callable
 
-from .events import InboundMessage
+from .messages import InboundMessage
 
 if TYPE_CHECKING:
     from ..chat import ChatService

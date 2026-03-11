@@ -9,7 +9,7 @@ import httpx
 import lark_oapi as lark
 
 from .base import BaseCommunicationChannel
-from .events import InboundMessage, ReplyTarget
+from .messages import InboundMessage, ReplyTarget
 
 if TYPE_CHECKING:
     from ..chat import ChatService

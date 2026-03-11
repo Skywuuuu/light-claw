@@ -4,7 +4,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 
-from .communication.events import ReplyTarget
+from .communication.messages import ReplyTarget
 from .communication.sender import MessageSender
 from .config import AgentSettings, Settings
 from .models import (

@@ -5,7 +5,7 @@ import logging
 import time
 from typing import Callable, Iterable, Optional
 
-from .communication.events import InboundMessage
+from .communication.messages import InboundMessage
 from .communication.sender import MessageSender
 from .commands import Command
 from .config import AgentSettings, Settings

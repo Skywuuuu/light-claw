@@ -5,7 +5,7 @@ from pathlib import Path
 
 from light_claw.archive import WorkspaceArchiveService
 from light_claw.chat import ChatService
-from light_claw.communication.events import InboundMessage, ReplyTarget
+from light_claw.communication.messages import InboundMessage, ReplyTarget
 from light_claw.config import AgentSettings, Settings
 from light_claw.models import (
     CliProviderInfo,

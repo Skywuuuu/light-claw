@@ -5,7 +5,7 @@ from typing import Dict, Protocol
 
 from .archive import WorkspaceArchiveService
 from .chat_commands import ChatCommandHandler
-from .communication.events import InboundMessage
+from .communication.messages import InboundMessage
 from .communication.sender import MessageSender
 from .commands import parse_command
 from .config import AgentSettings, Settings
