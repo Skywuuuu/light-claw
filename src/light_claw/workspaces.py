@@ -52,29 +52,22 @@ def _workspace_files(
                 f"- Agent name: {agent_name}",
                 f"- Workspace name: {name}",
                 f"- Workspace ID: {workspace_id}",
-                "",
-                "Before each task:",
-                "- Read `./README.md` and the files under `./memory/`.",
-                "- Read `./.light-claw/agent.json` for the agent binding.",
-                "- Read `./.light-claw/skills.md` and `./.light-claw/mcp.md` before using custom tools.",
-                "- Treat `memory/*.md` as durable memory.",
-                "- Use `memory/daily/YYYY-MM-DD.md` for temporary notes.",
-                "- Keep edits minimal and traceable.",
-                "- When you learn a durable fact about the user or project, update the right memory file.",
-            ]
-        )
-        + "\n",
-        "README.md": "\n".join(
-            [
-                f"# {name}",
-                "",
-                f"This is the isolated agent workspace `{workspace_id}`.",
-                f"It belongs to agent `{agent_id}` ({agent_name}).",
+                f"- This is the isolated agent workspace `{workspace_id}`.",
+                f"- It belongs to agent `{agent_id}` ({agent_name}).",
                 "",
                 "Recommended usage:",
                 "- Keep task-specific code and docs here.",
                 "- Keep durable facts in `memory/`.",
                 "- Let your selected CLI run inside this directory so `AGENTS.md` is in scope.",
+                "",
+                "Before each task:",
+                "- Read the files under `./memory/`.",
+                "- Read `./.light-claw/agent.json` for the agent binding.",
+                "- Read `./.light-claw/skills.md` and `./.light-claw/mcp.md` before using custom tools.",
+                "- Treat `memory/*.md` as durable memory.",
+                "- Use `memory/daily/YYYY-MM-DD.md` for short-lived notes.",
+                "- Keep edits minimal and traceable.",
+                "- When you learn a durable fact about the user or project, update the right memory file.",
             ]
         )
         + "\n",
@@ -109,7 +102,6 @@ def _workspace_files(
         "memory/projects.md": "# Projects\n\n- Active:\n- Backlog:\n",
         "memory/decisions.md": "# Decisions\n\n- \n",
         "memory/open_loops.md": "# Open Loops\n\n- \n",
-        "memory/daily/README.md": "# Daily Notes\n\nUse one file per day for short-lived notes.\n",
     }
 
 
@@ -195,3 +187,4 @@ class WorkspaceManager:
             target.parent.mkdir(parents=True, exist_ok=True)
             if not target.exists():
                 target.write_text(content, encoding="utf-8")
+        (workspace_dir / "memory" / "daily").mkdir(parents=True, exist_ok=True)
