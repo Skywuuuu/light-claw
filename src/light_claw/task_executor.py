@@ -4,8 +4,8 @@ import asyncio
 import time
 from dataclasses import dataclass
 
+from .communication.sender import MessageSender
 from .config import AgentSettings, Settings
-from .message_sender import MessageSender
 from .models import (
     TASK_STATUS_FAILED,
     TASK_STATUS_RUNNING,

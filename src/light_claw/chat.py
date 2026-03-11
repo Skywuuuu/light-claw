@@ -5,9 +5,9 @@ from typing import Dict, Protocol
 
 from .archive import WorkspaceArchiveService
 from .chat_commands import ChatCommandHandler
+from .communication.sender import MessageSender
 from .commands import parse_command
 from .config import AgentSettings, Settings
-from .message_sender import MessageSender
 from .models import FeishuInboundMessage
 from .providers import CliRunnerRegistry
 from .store import StateStore

@@ -147,7 +147,12 @@ src/light_claw/
   archive_sync.py
   chat.py
   chat_commands.py
-  task_commands.py
+  communication/
+    __init__.py
+    base.py
+    feishu.py
+    models.py
+    sender.py
   commands.py
   config.py
   cron.py
@@ -158,7 +163,6 @@ src/light_claw/
     __init__.py
     feishu.py
     feishu_long_connection.py
-  message_sender.py
   models.py
   providers/
     __init__.py
@@ -170,6 +174,7 @@ src/light_claw/
   session_observations.py
   store.py
   store_records.py
+  task_commands.py
   task_progress.py
   task_executor.py
   workspaces.py
