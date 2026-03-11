@@ -3,10 +3,11 @@ from __future__ import annotations
 from typing import Optional
 
 from .archive import WorkspaceArchiveService
+from .communication.models import FeishuInboundMessage
 from .communication.sender import MessageSender
 from .commands import Command, help_text
 from .config import AgentSettings, Settings
-from .models import FeishuInboundMessage, WorkspaceRecord
+from .models import WorkspaceRecord
 from .providers import CliRunnerRegistry
 from .store import StateStore
 from .task_commands import TaskCommandHandler

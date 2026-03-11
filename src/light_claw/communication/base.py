@@ -65,6 +65,3 @@ def _log_future_exception(future: Future[None]) -> None:
         future.result()
     except Exception:
         log.exception("background message handling failed")
-
-
-IMLongConnectionClient = BaseCommunicationChannel

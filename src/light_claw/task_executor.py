@@ -4,13 +4,13 @@ import asyncio
 import time
 from dataclasses import dataclass
 
+from .communication.models import FeishuReplyTarget
 from .communication.sender import MessageSender
 from .config import AgentSettings, Settings
 from .models import (
     TASK_STATUS_FAILED,
     TASK_STATUS_RUNNING,
     TASK_STATUS_SUCCEEDED,
-    FeishuReplyTarget,
     TaskRunRecord,
     WorkspaceRecord,
     WorkspaceTaskRecord,

@@ -156,13 +156,7 @@ src/light_claw/
   commands.py
   config.py
   cron.py
-  feishu.py
-  feishu_long_connection.py
   heartbeat.py
-  integrations/
-    __init__.py
-    feishu.py
-    feishu_long_connection.py
   models.py
   providers/
     __init__.py

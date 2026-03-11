@@ -2,7 +2,7 @@ import unittest
 
 import lark_oapi as lark
 
-from light_claw.feishu import parse_long_connection_message
+from light_claw.communication.feishu import parse_long_connection_message
 
 
 class FeishuLongConnectionParsingTest(unittest.TestCase):
