@@ -100,6 +100,18 @@ def clear_observations(
             pass
 
 
+def clear_workspace_observations(*, workspace: WorkspaceRecord) -> None:
+    state_dir = _observation_state_dir(workspace)
+    if not state_dir.exists():
+        return
+    for path in state_dir.iterdir():
+        try:
+            if path.is_file():
+                path.unlink()
+        except OSError:
+            continue
+
+
 def drain_observation_entries(
     *,
     workspace: WorkspaceRecord,

@@ -639,6 +639,18 @@ class StateStore:
             )
             self._db.commit()
 
+    def clear_workspace_sessions(self, agent_id: str, workspace_id: str) -> None:
+        with self._lock:
+            self._db.execute(
+                """
+                DELETE FROM conversation_session
+                WHERE agent_id = ?
+                  AND workspace_id = ?
+                """,
+                (agent_id, workspace_id),
+            )
+            self._db.commit()
+
     def create_workspace_task(
         self,
         agent_id: str,

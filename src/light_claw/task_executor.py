@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass
 
@@ -23,6 +24,7 @@ from .memory.guidance import (
 )
 from .memory.session_observations import (
     clear_observations,
+    clear_workspace_observations,
     drain_observation_entries,
     load_workspace_snapshot,
     record_observation,
@@ -30,6 +32,8 @@ from .memory.session_observations import (
 )
 from .memory.task_progress import record_task_progress, task_progress_relative_path
 from .store import StateStore
+
+log = logging.getLogger("light_claw.task_executor")
 
 
 @dataclass
@@ -158,6 +162,7 @@ class TaskExecutor:
                 error=error,
             )
         except Exception:
+            log.exception("unexpected error during CLI run")
             await self._stop_heartbeat(heartbeat_task)
             self._persist_workspace_snapshot(
                 workspace=workspace,
@@ -411,6 +416,9 @@ class TaskExecutor:
             conversation_id=conversation_id,
             conversation_owner_id=conversation_owner_id,
         )
+
+    def clear_workspace_observations(self, *, workspace: WorkspaceRecord) -> None:
+        clear_workspace_observations(workspace=workspace)
 
     @staticmethod
     def _truncate_excerpt(answer: str, max_chars: int = 400) -> str:
