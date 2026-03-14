@@ -17,7 +17,7 @@
 - Feishu event webhook mode
 - Feishu multi-agent long-connection mode on a single host
 - Text conversations through the selected CLI provider
-- Pluggable CLI provider registry, with Codex implemented and reserved slots for Claude Code and custom CLIs
+- Pluggable CLI provider registry, with Codex and Claude Code implemented plus a reserved custom CLI slot
 - One shared runtime with multiple isolated agents:
   - independent Feishu app credentials
   - one dedicated workspace per agent
@@ -135,7 +135,7 @@ How the pieces connect:
 - `StateStore` in SQLite is the shared coordination layer for the single workspace bound to each agent, resumed CLI sessions, background task definitions, run history, schedules, and inbound dedupe.
 - Each workspace directory is both execution context and long-term memory: the CLI runs inside it, `memory/` persists user/project knowledge, and `.light-claw/` stores internal state such as observations and schedule no-change tracking.
 - Background services do not execute work themselves; they only decide when work should run, then call back into the same `TaskExecutor`.
-- The selected CLI provider is stored on the agent workspace; today that means Codex, but the registry keeps the runtime path adapter-based instead of hardcoded.
+- The selected CLI provider is stored on the agent workspace; today that includes Codex and Claude Code, and the registry keeps the runtime path adapter-based instead of hardcoded.
 - The archive service is deliberately separate from task execution: it mirrors every known agent workspace for backup/debugging, but it does not participate in prompt construction.
 
 ## Project layout
@@ -234,6 +234,10 @@ cp .env.example .env
    - `LIGHT_CLAW_INBOUND_MESSAGE_TTL_SECONDS=604800` controls dedupe retention.
 
    Optional runtime settings:
+   - `CLAUDE_BIN=claude` sets the Claude Code CLI binary path.
+   - `CLAUDE_MODEL=` optionally pins the default Claude model.
+   - `CLAUDE_PERMISSION_MODE=bypassPermissions` controls Claude Code non-interactive permission handling.
+   - `CLAUDE_ADD_DIRS=` adds extra directories Claude Code may access, separated by `:`.
    - `CODEX_STALL_TIMEOUT_SECONDS=120` fails stalled Codex runs.
    - `LIGHT_CLAW_TASK_HEARTBEAT_ENABLED=true` enables workspace task progression scans.
    - `LIGHT_CLAW_TASK_HEARTBEAT_INTERVAL_SECONDS=1800` controls how often running tasks are resumed.
@@ -244,7 +248,10 @@ cp .env.example .env
    - In `LIGHT_CLAW_SANDBOX=full-auto`, `light-claw` enables outbound network access for Codex workspace-write sandbox commands.
    - `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` are forwarded into Codex sandboxed shell commands when set in the host environment.
 
-4. Ensure `codex` is installed and can run non-interactively on this machine.
+4. Ensure the CLI providers you want to use are installed and can run non-interactively on this machine.
+
+   - `codex` for the `codex` provider
+   - `claude` for the `claude-code` provider
 
 5. Start the server.
 
@@ -321,10 +328,12 @@ Each configured agent maps to:
 Each workspace also stores a selected CLI provider. The current implementation ships with:
 
 - `codex`: implemented
-- `claude-code`: reserved provider slot
+- `claude-code`: implemented
 - `custom`: reserved provider slot
 
-That means the execution path is no longer hardcoded to Codex. Adding Claude Code later is now an adapter task instead of a service-wide refactor.
+That means the execution path is no longer hardcoded to Codex. Switching between Codex and Claude Code now happens at the workspace provider layer instead of a service-wide refactor.
+
+Provider switch behavior stays intentionally simple: when a workspace switches between `codex` and `claude-code`, light-claw clears the workspace's saved CLI sessions before the next run so one provider never tries to resume the other's session ID.
 
 ## Task system
 

@@ -113,6 +113,7 @@ class ChatCommandHandler:
             if not command.argument:
                 return "Usage: /cli use <provider>"
             workspace = self.ensure_workspace()
+            previous_provider = workspace.cli_provider
             ok, reason = self.cli_registry.validate_selectable(command.argument)
             if not ok:
                 return reason
@@ -125,11 +126,22 @@ class ChatCommandHandler:
             if updated is None:
                 return "Failed to update workspace CLI provider."
             self._ensure_workspace_layout(updated)
+            session_reset = previous_provider != updated.cli_provider
+            if session_reset:
+                self.store.clear_workspace_sessions(
+                    updated.agent_id,
+                    updated.workspace_id,
+                )
+                self.task_executor.clear_workspace_observations(workspace=updated)
             response = "\n".join(
-                [
-                    "CLI provider updated.",
-                    "{} now uses `{}`.".format(updated.name, updated.cli_provider),
-                ]
+                ["CLI provider updated.", "{} now uses `{}`.".format(updated.name, updated.cli_provider)]
+                + (
+                    [
+                        "Existing workspace CLI sessions were cleared so the new provider starts fresh."
+                    ]
+                    if session_reset
+                    else []
+                )
             )
             self._record_command_observation(
                 workspace=updated,
