@@ -5,10 +5,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=%i
-WorkingDirectory=/absolute/path/to/light-claw
-EnvironmentFile=/absolute/path/to/light-claw/.env
-ExecStart=/usr/bin/env uv run light-claw
+User=wysi
+WorkingDirectory=/data1/wysi/light-claw
+EnvironmentFile=/data1/wysi/light-claw/.env
+Environment="PATH=/data2/wysi/miniconda3/bin:/home/wysi/.bun/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/data2/wysi/miniconda3/bin/uv run light-claw
 Restart=always
 RestartSec=5
 TimeoutStartSec=30

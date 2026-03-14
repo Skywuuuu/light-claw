@@ -188,6 +188,7 @@ class Settings:
     codex_timeout_max_seconds: int
     codex_timeout_per_char_ms: int
     codex_stall_timeout_seconds: int
+    codex_add_dirs: list[str]
     task_heartbeat_enabled: bool
     task_heartbeat_interval_seconds: int
     cron_enabled: bool
@@ -281,6 +282,11 @@ class Settings:
                 120,
                 environ=environ,
             ),
+            codex_add_dirs=[
+                d.strip()
+                for d in _read_str("CODEX_ADD_DIRS", "", environ=environ).split(":")
+                if d.strip()
+            ],
             task_heartbeat_enabled=_read_bool(
                 "LIGHT_CLAW_TASK_HEARTBEAT_ENABLED",
                 True,

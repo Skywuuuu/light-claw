@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass
 
@@ -30,6 +31,8 @@ from .memory.session_observations import (
 )
 from .memory.task_progress import record_task_progress, task_progress_relative_path
 from .store import StateStore
+
+log = logging.getLogger("light_claw.task_executor")
 
 
 @dataclass
@@ -158,6 +161,7 @@ class TaskExecutor:
                 error=error,
             )
         except Exception:
+            log.exception("unexpected error during CLI run")
             await self._stop_heartbeat(heartbeat_task)
             self._persist_workspace_snapshot(
                 workspace=workspace,

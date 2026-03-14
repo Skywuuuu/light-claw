@@ -74,10 +74,12 @@ class CodexCliRuntime:
         timeout_max_seconds: int = 900,
         timeout_per_char_ms: int = 80,
         stall_timeout_seconds: int = 120,
+        extra_writable_dirs: list[str] | None = None,
     ) -> None:
         self.codex_bin = codex_bin
         self.sandbox = sandbox
         self.default_model = default_model
+        self.extra_writable_dirs = extra_writable_dirs or []
         self.default_search = default_search
         self.timeout_min_seconds = timeout_min_seconds
         self.timeout_max_seconds = timeout_max_seconds
@@ -252,7 +254,10 @@ class CodexCliRuntime:
             command_args.extend(["--model", model])
         command_args.extend(self._build_sandbox_config_args())
         command_args.extend(self._build_proxy_config_args())
-        command_args = ["--cd", str(workspace_dir)] + command_args
+        top_level_args = ["--cd", str(workspace_dir)]
+        for extra_dir in self.extra_writable_dirs:
+            top_level_args.extend(["--add-dir", extra_dir])
+        command_args = top_level_args + command_args
         if search:
             command_args = ["--search"] + command_args
         command_args.append(prompt)

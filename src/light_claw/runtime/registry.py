@@ -58,6 +58,7 @@ class CliRuntimeRegistry:
             timeout_max_seconds=settings.codex_timeout_max_seconds,
             timeout_per_char_ms=settings.codex_timeout_per_char_ms,
             stall_timeout_seconds=settings.codex_stall_timeout_seconds,
+            extra_writable_dirs=settings.codex_add_dirs,
         )
         providers = [
             CliProviderInfo(
