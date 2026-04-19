@@ -2,35 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from dataclasses import dataclass
 
 from .communication.base import BaseCommunicationChannel
 from .communication.messages import ReplyTarget
 from .config import AgentSettings, Settings
-from .models import (
-    TASK_STATUS_FAILED,
-    TASK_STATUS_RUNNING,
-    TASK_STATUS_SUCCEEDED,
-    TaskRunRecord,
-    WorkspaceRecord,
-    WorkspaceTaskRecord,
-)
+from .models import WorkspaceRecord
 from .runtime import CliRuntimeError, CliRuntimeRegistry
-from .memory.guidance import (
-    inject_cron_task_guidance,
-    inject_memory_guidance,
-    inject_session_observations,
-)
-from .memory.session_observations import (
-    clear_observations,
-    clear_workspace_observations,
-    drain_observation_entries,
-    load_workspace_snapshot,
-    record_observation,
-    save_workspace_snapshot,
-)
-from .memory.task_progress import record_task_progress, task_progress_relative_path
 from .store import StateStore
 
 log = logging.getLogger("light_claw.task_executor")
@@ -79,8 +57,6 @@ class TaskExecutor:
         deliver_result: bool = True,
     ) -> TaskExecutionResult:
         session_id = None
-        session_snapshot = None
-        queued_observations: list[dict[str, object]] = []
         if conversation_id and conversation_owner_id:
             session_id = self.store.get_workspace_session_id(
                 self.agent.agent_id,
@@ -88,26 +64,6 @@ class TaskExecutor:
                 conversation_owner_id,
                 workspace.workspace_id,
             )
-            session_snapshot = load_workspace_snapshot(
-                workspace=workspace,
-                agent_id=self.agent.agent_id,
-                conversation_id=conversation_id,
-                conversation_owner_id=conversation_owner_id,
-            )
-            queued_observations = drain_observation_entries(
-                workspace=workspace,
-                agent_id=self.agent.agent_id,
-                conversation_id=conversation_id,
-                conversation_owner_id=conversation_owner_id,
-            )
-        prompt = inject_memory_guidance(prompt)
-        prompt = inject_session_observations(
-            workspace=workspace,
-            prompt=prompt,
-            session_id=session_id,
-            snapshot_json=session_snapshot,
-            queued_observations=queued_observations,
-        )
         if reply_target is not None and announce_start:
             await self.communication_channel.send_text(
                 reply_target,
@@ -135,178 +91,49 @@ class TaskExecutor:
             )
         except CliRuntimeError as exc:
             await self._stop_heartbeat(heartbeat_task)
-            self._persist_workspace_snapshot(
-                workspace=workspace,
-                conversation_id=conversation_id,
-                conversation_owner_id=conversation_owner_id,
-                session_id=session_id,
-            )
-            error = str(exc)
-            self.record_observation(
-                workspace=workspace,
-                conversation_id=conversation_id,
-                conversation_owner_id=conversation_owner_id,
-                kind="runtime_event",
-                text="Previous CLI run failed.\nError:\n{}".format(error),
-                context_key="cli_failed",
-            )
             if reply_target is not None:
                 await self.communication_channel.send_text(
                     reply_target,
-                    "CLI run failed:\n{}".format(error),
+                    "CLI run failed:\n{}".format(exc),
                 )
             return TaskExecutionResult(
-                status=TASK_STATUS_FAILED,
+                status="failed",
                 answer="",
                 session_id=session_id,
-                error=error,
+                error=str(exc),
             )
         except Exception:
             log.exception("unexpected error during CLI run")
             await self._stop_heartbeat(heartbeat_task)
-            self._persist_workspace_snapshot(
-                workspace=workspace,
-                conversation_id=conversation_id,
-                conversation_owner_id=conversation_owner_id,
-                session_id=session_id,
-            )
-            error = "Unexpected internal error."
-            self.record_observation(
-                workspace=workspace,
-                conversation_id=conversation_id,
-                conversation_owner_id=conversation_owner_id,
-                kind="runtime_event",
-                text="Previous CLI run failed.\nError:\n{}".format(error),
-                context_key="cli_failed",
-            )
             if reply_target is not None:
                 await self.communication_channel.send_text(
                     reply_target,
-                    "CLI run failed:\n{}".format(error),
+                    "CLI run failed:\nUnexpected internal error.",
                 )
             return TaskExecutionResult(
-                status=TASK_STATUS_FAILED,
+                status="failed",
                 answer="",
                 session_id=session_id,
-                error=error,
+                error="Unexpected internal error.",
             )
 
         await self._stop_heartbeat(heartbeat_task)
-        self._persist_session(
-            workspace=workspace,
-            conversation_id=conversation_id,
-            conversation_owner_id=conversation_owner_id,
-            session_id=result.session_id or session_id,
-        )
+        new_session_id = result.session_id or session_id
+        if new_session_id and conversation_id and conversation_owner_id:
+            self.store.set_session_id(
+                self.agent.agent_id,
+                conversation_id,
+                conversation_owner_id,
+                workspace.workspace_id,
+                new_session_id,
+            )
         if reply_target is not None and deliver_result:
             await self.communication_channel.send_text(reply_target, result.answer)
         return TaskExecutionResult(
-            status=TASK_STATUS_SUCCEEDED,
+            status="succeeded",
             answer=result.answer,
-            session_id=result.session_id or session_id,
+            session_id=new_session_id,
         )
-
-    async def execute_workspace_task(
-        self,
-        task: WorkspaceTaskRecord,
-        *,
-        trigger_source: str,
-        reschedule_seconds: int | None = None,
-        announce_start: bool = False,
-        deliver_result: bool = True,
-    ) -> TaskExecutionResult | None:
-        run = self.store.claim_workspace_task(
-            task.agent_id,
-            task.owner_id,
-            task.workspace_id,
-            task.task_id,
-            trigger_source=trigger_source,
-            conversation_id=task.notify_conversation_id,
-            conversation_owner_id=task.notify_owner_id,
-        )
-        if run is None:
-            return None
-        workspace = self.store.get_agent_workspace(task.agent_id)
-        if workspace is None:
-            self.store.complete_task_run(
-                task.agent_id,
-                run.run_id,
-                status=TASK_STATUS_FAILED,
-                task_status=TASK_STATUS_FAILED,
-                error_message="Workspace not found.",
-                result_excerpt=None,
-                next_run_at=None,
-            )
-            return TaskExecutionResult(
-                status=TASK_STATUS_FAILED,
-                answer="",
-                session_id=None,
-                error="Workspace not found.",
-            )
-
-        reply_target = self._task_reply_target(task)
-        prompt = task.prompt
-        if trigger_source == "cron":
-            prompt = inject_cron_task_guidance(task=task, prompt=prompt)
-        result = await self.execute_prompt(
-            workspace=workspace,
-            prompt=prompt,
-            conversation_id=task.notify_conversation_id,
-            conversation_owner_id=task.notify_owner_id,
-            reply_target=reply_target,
-            announce_start=announce_start,
-            deliver_result=deliver_result,
-        )
-        progress_updated = record_task_progress(
-            workspace=workspace,
-            task=task,
-            result_status=result.status,
-            result_answer=result.answer,
-            result_error=result.error,
-            trigger_source=trigger_source,
-        )
-        next_run_at = None
-        task_status = result.status
-        if result.status == TASK_STATUS_SUCCEEDED and reschedule_seconds:
-            next_run_at = time.time() + reschedule_seconds
-            task_status = TASK_STATUS_RUNNING
-        self.store.complete_task_run(
-            task.agent_id,
-            run.run_id,
-            status=result.status,
-            task_status=task_status,
-            error_message=result.error,
-            result_excerpt=self._truncate_excerpt(result.answer),
-            next_run_at=next_run_at,
-        )
-        if task.notify_conversation_id and task.notify_owner_id:
-            observation = (
-                "Background task completed.\n{} ({})\nResult:\n{}".format(
-                    task.title,
-                    task.task_id,
-                    self._truncate_excerpt(result.answer, max_chars=2000),
-                )
-                if result.status == TASK_STATUS_SUCCEEDED
-                else "Background task failed.\n{} ({})\nError:\n{}".format(
-                    task.title,
-                    task.task_id,
-                    result.error or "Unknown error.",
-                )
-            )
-            if progress_updated:
-                observation = "{}\nProgress note: {}".format(
-                    observation,
-                    task_progress_relative_path(task),
-                )
-            self.record_observation(
-                workspace=workspace,
-                conversation_id=task.notify_conversation_id,
-                conversation_owner_id=task.notify_owner_id,
-                kind="task_update",
-                text=observation,
-                context_key="task:{}:{}".format(task.task_id, result.status),
-            )
-        return result
 
     async def _send_heartbeat(
         self,
@@ -337,100 +164,3 @@ class TaskExecutor:
             return
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
-
-    def _persist_session(
-        self,
-        *,
-        workspace: WorkspaceRecord,
-        conversation_id: str | None,
-        conversation_owner_id: str | None,
-        session_id: str | None,
-    ) -> None:
-        if (
-            not session_id
-            or not conversation_id
-            or not conversation_owner_id
-        ):
-            return
-        self.store.set_session_id(
-            self.agent.agent_id,
-            conversation_id,
-            conversation_owner_id,
-            workspace.workspace_id,
-            session_id,
-        )
-        save_workspace_snapshot(
-            workspace=workspace,
-            agent_id=self.agent.agent_id,
-            conversation_id=conversation_id,
-            conversation_owner_id=conversation_owner_id,
-        )
-
-    def _persist_workspace_snapshot(
-        self,
-        *,
-        workspace: WorkspaceRecord,
-        conversation_id: str | None,
-        conversation_owner_id: str | None,
-        session_id: str | None,
-    ) -> None:
-        if not conversation_id or not conversation_owner_id:
-            return
-        save_workspace_snapshot(
-            workspace=workspace,
-            agent_id=self.agent.agent_id,
-            conversation_id=conversation_id,
-            conversation_owner_id=conversation_owner_id,
-        )
-
-    def record_observation(
-        self,
-        *,
-        workspace: WorkspaceRecord,
-        conversation_id: str | None,
-        conversation_owner_id: str | None,
-        kind: str,
-        text: str,
-        context_key: str | None = None,
-    ) -> bool:
-        return record_observation(
-            workspace=workspace,
-            agent_id=self.agent.agent_id,
-            conversation_id=conversation_id,
-            conversation_owner_id=conversation_owner_id,
-            kind=kind,
-            text=text,
-            context_key=context_key,
-        )
-
-    def clear_observations(
-        self,
-        *,
-        workspace: WorkspaceRecord,
-        conversation_id: str | None,
-        conversation_owner_id: str | None,
-    ) -> None:
-        clear_observations(
-            workspace=workspace,
-            agent_id=self.agent.agent_id,
-            conversation_id=conversation_id,
-            conversation_owner_id=conversation_owner_id,
-        )
-
-    def clear_workspace_observations(self, *, workspace: WorkspaceRecord) -> None:
-        clear_workspace_observations(workspace=workspace)
-
-    @staticmethod
-    def _truncate_excerpt(answer: str, max_chars: int = 400) -> str:
-        if len(answer) <= max_chars:
-            return answer
-        return answer[:max_chars].rstrip() + "..."
-
-    @staticmethod
-    def _task_reply_target(task: WorkspaceTaskRecord) -> ReplyTarget | None:
-        if not task.notify_receive_id or not task.notify_receive_id_type:
-            return None
-        return ReplyTarget(
-            receive_id=task.notify_receive_id,
-            receive_id_type=task.notify_receive_id_type,
-        )
