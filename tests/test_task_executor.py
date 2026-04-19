@@ -263,17 +263,3 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn("starts fresh", communication_channel.messages[-1][2])
             store.close()
 
-    async def test_execute_workspace_task_records_run_and_reschedule(self) -> None:
-        pass  # deleted: execute_workspace_task removed from TaskExecutor
-
-    async def test_execute_prompt_injects_generic_observation_once(self) -> None:
-        pass  # deleted: record_observation removed from TaskExecutor
-
-    async def test_execute_prompt_injects_workspace_change_observation_on_resume(self) -> None:
-        pass  # deleted: workspace change observation injection removed from TaskExecutor
-
-    async def test_execute_workspace_task_records_progress_and_cron_guidance(self) -> None:
-        pass  # deleted: execute_workspace_task removed from TaskExecutor
-
-    async def test_chat_command_observation_is_injected_on_next_prompt(self) -> None:
-        pass  # deleted: command observation injection removed from ChatCommandHandler
