@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .archive import WorkspaceArchiveService
 from .communication.base import BaseCommunicationChannel
 from .communication.messages import InboundMessage
 from .commands import Command, help_text
@@ -10,7 +9,6 @@ from .config import AgentSettings, Settings
 from .models import WorkspaceRecord
 from .runtime import CliRuntimeRegistry
 from .store import StateStore
-from .task_commands import TaskCommandHandler
 from .task_executor import TaskExecutor
 from .workspaces import WorkspaceManager
 
@@ -25,7 +23,6 @@ class ChatCommandHandler:
         cli_registry: CliRuntimeRegistry,
         communication_channel: BaseCommunicationChannel,
         task_executor: TaskExecutor,
-        archive_service: WorkspaceArchiveService | None = None,
     ) -> None:
         self.settings = settings
         self.agent = agent
@@ -34,15 +31,6 @@ class ChatCommandHandler:
         self.cli_registry = cli_registry
         self.communication_channel = communication_channel
         self.task_executor = task_executor
-        self.archive_service = archive_service
-        self.task_commands = TaskCommandHandler(
-            settings=settings,
-            agent=agent,
-            store=store,
-            communication_channel=communication_channel,
-            task_executor=task_executor,
-            ensure_workspace=self.ensure_workspace,
-        )
 
     async def handle(
         self,
@@ -51,34 +39,6 @@ class ChatCommandHandler:
     ) -> Optional[str]:
         if command.kind == "help":
             return help_text()
-        if command.kind == "archive_current":
-            return self._render_archive_status()
-        if command.kind == "archive_daily":
-            if not command.argument:
-                return "Usage: /archive daily <HH:MM>"
-            if self.archive_service is None:
-                return "Archive service is disabled."
-            try:
-                daily_time = self.archive_service.update_daily_time(command.argument)
-            except ValueError:
-                return "Usage: /archive daily <HH:MM> (24-hour local time)"
-            response = "\n".join(
-                [
-                    "Archive schedule updated.",
-                    "Daily at {} (server local time).".format(daily_time),
-                    "Scope: all agent workspaces.",
-                ]
-            )
-            workspace = self.get_workspace()
-            if workspace is not None:
-                self._record_command_observation(
-                    workspace=workspace,
-                    message=message,
-                    command_kind=command.kind,
-                    response=response,
-                    context_key=daily_time,
-                )
-            return response
         if command.kind == "reset":
             workspace = self.get_workspace()
             self.store.clear_session(
@@ -151,8 +111,6 @@ class ChatCommandHandler:
                 context_key=updated.cli_provider,
             )
             return response
-        if command.kind.startswith("task_") or command.kind.startswith("cron_"):
-            return await self.task_commands.handle(message, command)
         if command.kind == "invalid":
             return "Unknown command. Use `/help`."
         return None
@@ -223,34 +181,4 @@ class ChatCommandHandler:
             )
             lines.append(provider.description)
         lines.append("Use `/cli use <provider>` to switch the current agent workspace.")
-        return "\n".join(lines)
-
-    def _render_archive_status(self) -> str:
-        if self.archive_service is None:
-            return "Archive service is disabled."
-        lines = [
-            "Archive status:",
-            "Scope: all agent workspaces",
-            "Archive dir: {}".format(self.archive_service.archive_root),
-        ]
-        if self.archive_service.daily_time:
-            lines.append(
-                "Schedule: daily at {} (server local time)".format(
-                    self.archive_service.daily_time
-                )
-            )
-        else:
-            lines.append(
-                "Schedule: every {}s".format(self.archive_service.interval_seconds)
-            )
-        if self.archive_service.next_run_at is not None:
-            lines.append("Next run at: {}".format(int(self.archive_service.next_run_at)))
-        if self.archive_service.last_success_at is not None:
-            lines.append(
-                "Last success at: {}".format(int(self.archive_service.last_success_at))
-            )
-        else:
-            lines.append("Last success at: (never)")
-        if self.archive_service.last_error:
-            lines.extend(["Last error:", self.archive_service.last_error])
         return "\n".join(lines)

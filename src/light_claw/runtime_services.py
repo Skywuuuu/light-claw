@@ -5,13 +5,10 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from .archive import WorkspaceArchiveService
 from .chat import ChatObserver, ChatService
 from .communication.base import BaseCommunicationChannel
 from .communication.feishu import FeishuCommunicationChannel
 from .config import APP_NAME, AgentSettings, Settings
-from .cron import CronService
-from .heartbeat import WorkspaceHeartbeatService
 from .runtime import CliRuntimeRegistry
 from .store import StateStore
 from .task_executor import TaskExecutor
@@ -35,9 +32,6 @@ class RuntimeServices:
     settings: Settings
     store: StateStore
     workspace_manager: WorkspaceManager
-    archive_service: WorkspaceArchiveService | None
-    heartbeat_service: WorkspaceHeartbeatService | None
-    cron_service: CronService | None
     health: "RuntimeHealth"
     agent_runtimes: dict[str, AgentRuntime]
 
@@ -46,15 +40,6 @@ class RuntimeHealth(ChatObserver):
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.started_at = time.time()
-        self.archive_running = False
-        self.archive_last_success_at: float | None = None
-        self.archive_last_error: str | None = None
-        self.heartbeat_running = False
-        self.heartbeat_last_success_at: float | None = None
-        self.heartbeat_last_error: str | None = None
-        self.cron_running = False
-        self.cron_last_success_at: float | None = None
-        self.cron_last_error: str | None = None
         self.background_error_count = 0
         self.message_counts = {
             "received": 0,
@@ -70,45 +55,6 @@ class RuntimeHealth(ChatObserver):
             }
             for agent in settings.agents
         }
-
-    def mark_archive_started(self) -> None:
-        self.archive_running = True
-
-    def mark_archive_stopped(self) -> None:
-        self.archive_running = False
-
-    def mark_archive_synced(self) -> None:
-        self.archive_last_success_at = time.time()
-        self.archive_last_error = None
-
-    def mark_archive_error(self, exc: Exception) -> None:
-        self.archive_last_error = str(exc)
-
-    def mark_heartbeat_started(self) -> None:
-        self.heartbeat_running = True
-
-    def mark_heartbeat_stopped(self) -> None:
-        self.heartbeat_running = False
-
-    def mark_heartbeat_tick(self) -> None:
-        self.heartbeat_last_success_at = time.time()
-        self.heartbeat_last_error = None
-
-    def mark_heartbeat_error(self, exc: Exception) -> None:
-        self.heartbeat_last_error = str(exc)
-
-    def mark_cron_started(self) -> None:
-        self.cron_running = True
-
-    def mark_cron_stopped(self) -> None:
-        self.cron_running = False
-
-    def mark_cron_tick(self) -> None:
-        self.cron_last_success_at = time.time()
-        self.cron_last_error = None
-
-    def mark_cron_error(self, exc: Exception) -> None:
-        self.cron_last_error = str(exc)
 
     def mark_agent_connection(self, agent_id: str, connected: bool) -> None:
         state = self.agent_states.setdefault(
@@ -158,35 +104,13 @@ class RuntimeHealth(ChatObserver):
             )
         else:
             agents_ready = True
-        ready = store_ok and agents_ready and (
-            (not self.settings.archive_enabled) or self.archive_running
-        )
-        ready = ready and ((not self.settings.task_heartbeat_enabled) or self.heartbeat_running)
-        ready = ready and ((not self.settings.cron_enabled) or self.cron_running)
+        ready = store_ok and agents_ready
         return {
             "app": APP_NAME,
             "started_at": self.started_at,
             "uptime_seconds": int(time.time() - self.started_at),
             "event_mode": self.settings.feishu_event_mode,
             "store_ok": store_ok,
-            "archive": {
-                "enabled": self.settings.archive_enabled,
-                "running": self.archive_running,
-                "last_success_at": self.archive_last_success_at,
-                "last_error": self.archive_last_error,
-            },
-            "heartbeat": {
-                "enabled": self.settings.task_heartbeat_enabled,
-                "running": self.heartbeat_running,
-                "last_success_at": self.heartbeat_last_success_at,
-                "last_error": self.heartbeat_last_error,
-            },
-            "cron": {
-                "enabled": self.settings.cron_enabled,
-                "running": self.cron_running,
-                "last_success_at": self.cron_last_success_at,
-                "last_error": self.cron_last_error,
-            },
             "agents": self.agent_states,
             "messages": self.message_counts,
             "outcomes": self.outcome_counts,
@@ -203,21 +127,8 @@ def build_services(settings: Settings) -> RuntimeServices:
     store.prune_inbound_messages(settings.inbound_message_ttl_seconds)
     workspace_manager = WorkspaceManager(settings.workspaces_dir)
     health = RuntimeHealth(settings)
-    archive_service = None
-    heartbeat_service = None
-    cron_service = None
-    if settings.archive_enabled:
-        archive_service = WorkspaceArchiveService(
-            store=store,
-            archive_root=settings.archive_dir,
-            interval_seconds=settings.archive_interval_seconds,
-            inbound_message_ttl_seconds=settings.inbound_message_ttl_seconds,
-            on_sync_success=health.mark_archive_synced,
-            on_sync_error=health.mark_archive_error,
-        )
 
     agent_runtimes: dict[str, AgentRuntime] = {}
-    task_executors: dict[str, TaskExecutor] = {}
     for agent in settings.agents:
         cli_registry = CliRuntimeRegistry.from_settings(settings, agent)
         communication_channel = FeishuCommunicationChannel(
@@ -241,7 +152,6 @@ def build_services(settings: Settings) -> RuntimeServices:
             cli_registry=cli_registry,
             communication_channel=communication_channel,
             task_executor=task_executor,
-            archive_service=archive_service,
             observer=health,
         )
         agent_runtimes[agent.agent_id] = AgentRuntime(
@@ -251,59 +161,21 @@ def build_services(settings: Settings) -> RuntimeServices:
             task_executor=task_executor,
             chat_service=chat_service,
         )
-        task_executors[agent.agent_id] = task_executor
-
-    if settings.task_heartbeat_enabled:
-        heartbeat_service = WorkspaceHeartbeatService(
-            store=store,
-            executors=task_executors,
-            interval_seconds=settings.task_heartbeat_interval_seconds,
-            on_tick_success=health.mark_heartbeat_tick,
-            on_tick_error=health.mark_heartbeat_error,
-        )
-    if settings.cron_enabled:
-        cron_service = CronService(
-            store=store,
-            executors=task_executors,
-            poll_interval_seconds=settings.cron_poll_interval_seconds,
-            on_tick_success=health.mark_cron_tick,
-            on_tick_error=health.mark_cron_error,
-        )
 
     return RuntimeServices(
         settings=settings,
         store=store,
         workspace_manager=workspace_manager,
-        archive_service=archive_service,
-        heartbeat_service=heartbeat_service,
-        cron_service=cron_service,
         health=health,
         agent_runtimes=agent_runtimes,
     )
 
 
 async def start_managed_services(services: RuntimeServices) -> None:
-    if services.archive_service is not None:
-        await services.archive_service.start()
-        services.health.mark_archive_started()
-    if services.heartbeat_service is not None:
-        await services.heartbeat_service.start()
-        services.health.mark_heartbeat_started()
-    if services.cron_service is not None:
-        await services.cron_service.start()
-        services.health.mark_cron_started()
+    pass
 
 
 async def shutdown_services(services: RuntimeServices) -> None:
-    if services.archive_service is not None:
-        await services.archive_service.stop()
-        services.health.mark_archive_stopped()
-    if services.heartbeat_service is not None:
-        await services.heartbeat_service.stop()
-        services.health.mark_heartbeat_stopped()
-    if services.cron_service is not None:
-        await services.cron_service.stop()
-        services.health.mark_cron_stopped()
     for runtime in services.agent_runtimes.values():
         await runtime.communication_channel.close()
     services.store.close()

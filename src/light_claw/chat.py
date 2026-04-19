@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from typing import Dict, Protocol
 
-from .archive import WorkspaceArchiveService
 from .chat_commands import ChatCommandHandler
 from .communication.base import BaseCommunicationChannel
 from .communication.messages import InboundMessage
@@ -42,7 +41,6 @@ class ChatService:
         cli_registry: CliRuntimeRegistry,
         communication_channel: BaseCommunicationChannel,
         task_executor: TaskExecutor,
-        archive_service: WorkspaceArchiveService | None = None,
         observer: ChatObserver | None = None,
     ) -> None:
         self.settings = settings
@@ -60,7 +58,6 @@ class ChatService:
             cli_registry=cli_registry,
             communication_channel=communication_channel,
             task_executor=task_executor,
-            archive_service=archive_service,
         )
 
     async def handle_message(self, message: InboundMessage) -> None:
