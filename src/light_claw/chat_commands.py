@@ -99,6 +99,22 @@ class ChatCommandHandler:
     def ensure_workspace(self) -> WorkspaceRecord:
         workspace = self.store.get_agent_workspace(self.agent.agent_id)
         if workspace is not None:
+            expected = self.cli_registry.default_provider_id(
+                self.agent.default_cli_provider
+            )
+            if workspace.cli_provider != expected:
+                updated = self.store.set_workspace_cli_provider(
+                    workspace.agent_id,
+                    workspace.owner_id,
+                    workspace.workspace_id,
+                    expected,
+                )
+                if updated is not None:
+                    self.store.clear_workspace_sessions(
+                        updated.agent_id,
+                        updated.workspace_id,
+                    )
+                    workspace = updated
             self._ensure_workspace_layout(workspace)
             return workspace
         created = self.workspace_manager.create_workspace(

@@ -6,9 +6,10 @@ from pathlib import Path
 from typing import Callable
 
 from ..models import CliRunResult
+from ._errors import CliRuntimeError
 
 
-class ClaudeCodeRuntimeError(RuntimeError):
+class ClaudeCodeRuntimeError(CliRuntimeError):
     """Raised when the local Claude Code runtime cannot complete a run."""
 
 

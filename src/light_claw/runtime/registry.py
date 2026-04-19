@@ -9,8 +9,7 @@ from .claude_code import ClaudeCodeRuntime
 from .codex_cli import CodexCliRuntime
 
 
-class CliRuntimeError(RuntimeError):
-    """Raised when a configured CLI runtime cannot be selected or executed."""
+from ._errors import CliRuntimeError  # noqa: F811 – re-export
 
 
 class CliRuntime(Protocol):

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from ..models import CliRunResult
+from ._errors import CliRuntimeError
 
 
 PROXY_ENV_KEYS = (
@@ -21,7 +22,7 @@ PROXY_ENV_KEYS = (
 )
 
 
-class CodexCliRuntimeError(RuntimeError):
+class CodexCliRuntimeError(CliRuntimeError):
     """Raised when the local Codex CLI runtime cannot complete a run."""
 
 

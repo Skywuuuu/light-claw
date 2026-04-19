@@ -1,3 +1,4 @@
+from ._errors import CliRuntimeError
 from .claude_code import (
     ClaudeCodeRuntime,
     ClaudeCodeRuntimeError,
@@ -8,7 +9,7 @@ from .codex_cli import (
     CodexCliRuntimeError,
     parse_codex_cli_output,
 )
-from .registry import CliRuntime, CliRuntimeError, CliRuntimeRegistry
+from .registry import CliRuntime, CliRuntimeRegistry
 
 __all__ = [
     "CliRuntime",
