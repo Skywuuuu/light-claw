@@ -6,11 +6,8 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from light_claw.config import DEFAULT_AGENT_ID
 from light_claw.config import Settings
-from light_claw.models import WorkspaceRecord
 from light_claw.server import create_app
-from light_claw.store import StateStore
 
 
 class ServerTest(unittest.TestCase):
@@ -20,9 +17,6 @@ class ServerTest(unittest.TestCase):
                 os.environ,
                 {
                     "FEISHU_ENABLED": "false",
-                    "LIGHT_CLAW_ARCHIVE_ENABLED": "false",
-                    "LIGHT_CLAW_TASK_HEARTBEAT_ENABLED": "false",
-                    "LIGHT_CLAW_CRON_ENABLED": "false",
                     "LIGHT_CLAW_DATA_DIR": "",
                 },
                 clear=True,
@@ -69,7 +63,6 @@ class ServerTest(unittest.TestCase):
                     "FEISHU_ENABLED": "true",
                     "FEISHU_EVENT_MODE": "webhook",
                     "LIGHT_CLAW_AGENTS_FILE": str(agents_file),
-                    "LIGHT_CLAW_ARCHIVE_ENABLED": "false",
                     "LIGHT_CLAW_DATA_DIR": "",
                 },
                 clear=True,

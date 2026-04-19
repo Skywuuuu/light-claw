@@ -22,7 +22,7 @@ uv run python -m pytest tests/
 uv run python -m pytest tests/test_server.py
 
 # Run a single test
-uv run python -m pytest tests/test_server.py::TestServerHealth::test_livez
+uv run python -m pytest tests/test_server.py::ServerTest::test_health_endpoints_are_ready_for_local_process
 ```
 
 There is no linter, formatter, or type checker configured — this is intentional.

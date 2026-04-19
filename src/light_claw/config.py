@@ -535,8 +535,6 @@ def _load_agents(
                 mcp_config_path=mcp_config_path,
             )
         )
-    if not feishu_enabled:
-        return agents
     return agents
 
 
