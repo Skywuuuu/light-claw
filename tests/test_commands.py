@@ -10,36 +10,20 @@ class CommandsTest(unittest.TestCase):
         self.assertEqual(command.kind, "cli_use")
         self.assertEqual(command.argument, "codex")
 
-    def test_parse_task_and_cron_commands(self) -> None:
-        task_command = parse_command("/task create Review open loops")
-        self.assertIsNotNone(task_command)
-        self.assertEqual(task_command.kind, "task_create")
-        self.assertEqual(task_command.argument, "Review open loops")
+    def test_removed_commands_return_none(self) -> None:
+        self.assertIsNone(parse_command("/task create Review open loops"))
+        self.assertIsNone(parse_command("/cron every 60 1"))
+        self.assertIsNone(parse_command("/archive daily 03:15"))
 
-        task_status_command = parse_command("/task status 1")
-        self.assertIsNotNone(task_status_command)
-        self.assertEqual(task_status_command.kind, "task_status")
-        self.assertEqual(task_status_command.argument, "1")
-
-        cron_command = parse_command("/cron every 60 1")
-        self.assertIsNotNone(cron_command)
-        self.assertEqual(cron_command.kind, "cron_every")
-        self.assertEqual(cron_command.argument, "60 1")
-
-        archive_command = parse_command("/archive daily 03:15")
-        self.assertIsNotNone(archive_command)
-        self.assertEqual(archive_command.kind, "archive_daily")
-        self.assertEqual(archive_command.argument, "03:15")
-
-    def test_help_text_omits_workspace_commands(self) -> None:
+    def test_help_text_lists_supported_commands(self) -> None:
         text = help_text()
         self.assertNotIn("/workspace", text)
-        self.assertIn("/archive current", text)
-        self.assertIn("/archive daily <HH:MM>", text)
+        self.assertNotIn("/archive", text)
+        self.assertNotIn("/task", text)
+        self.assertNotIn("/cron", text)
         self.assertIn("/cli list", text)
-        self.assertIn("/task list", text)
-        self.assertIn("/task status <id|index>", text)
-        self.assertIn("/cron every <seconds> <task_id>", text)
+        self.assertIn("/cli current", text)
+        self.assertIn("/cli use <provider>", text)
         self.assertIn("/reset", text)
 
 

@@ -8,27 +8,6 @@ from light_claw.config import Settings
 
 
 class SettingsCompatibilityTest(unittest.TestCase):
-    def test_archive_defaults_to_sibling_directory(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            base_dir = Path(tmp_dir) / "light-claw"
-            with patch.dict(
-                os.environ,
-                {
-                    "FEISHU_ENABLED": "false",
-                    "LIGHT_CLAW_ARCHIVE_DIR": "",
-                },
-                clear=False,
-            ):
-                settings = Settings.from_env(base_dir=base_dir)
-
-        self.assertEqual(settings.archive_dir, (Path(tmp_dir) / "light-claw-data").resolve())
-        self.assertTrue(settings.archive_enabled)
-        self.assertEqual(settings.archive_interval_seconds, 12 * 60 * 60)
-        self.assertTrue(settings.task_heartbeat_enabled)
-        self.assertEqual(settings.task_heartbeat_interval_seconds, 30 * 60)
-        self.assertTrue(settings.cron_enabled)
-        self.assertEqual(settings.cron_poll_interval_seconds, 60)
-
     def test_prefers_light_claw_env_vars(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             data_dir = Path(tmp_dir) / "light-data"
@@ -183,49 +162,6 @@ class SettingsCompatibilityTest(unittest.TestCase):
                 clear=False,
             ):
                 with self.assertRaisesRegex(ValueError, "FEISHU_VERIFICATION_TOKEN"):
-                    Settings.from_env(base_dir=Path(tmp_dir) / "repo")
-
-    def test_archive_interval_must_be_positive(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            with patch.dict(
-                os.environ,
-                {
-                    "FEISHU_ENABLED": "false",
-                    "LIGHT_CLAW_ARCHIVE_INTERVAL_SECONDS": "0",
-                },
-                clear=False,
-            ):
-                with self.assertRaisesRegex(
-                    ValueError, "LIGHT_CLAW_ARCHIVE_INTERVAL_SECONDS"
-                ):
-                    Settings.from_env(base_dir=Path(tmp_dir) / "repo")
-
-    def test_task_runtime_intervals_must_be_positive(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            with patch.dict(
-                os.environ,
-                {
-                    "FEISHU_ENABLED": "false",
-                    "LIGHT_CLAW_TASK_HEARTBEAT_INTERVAL_SECONDS": "0",
-                },
-                clear=False,
-            ):
-                with self.assertRaisesRegex(
-                    ValueError, "LIGHT_CLAW_TASK_HEARTBEAT_INTERVAL_SECONDS"
-                ):
-                    Settings.from_env(base_dir=Path(tmp_dir) / "repo")
-
-            with patch.dict(
-                os.environ,
-                {
-                    "FEISHU_ENABLED": "false",
-                    "LIGHT_CLAW_CRON_POLL_INTERVAL_SECONDS": "0",
-                },
-                clear=False,
-            ):
-                with self.assertRaisesRegex(
-                    ValueError, "LIGHT_CLAW_CRON_POLL_INTERVAL_SECONDS"
-                ):
                     Settings.from_env(base_dir=Path(tmp_dir) / "repo")
 
     def test_supports_multi_agent_json_configuration(self) -> None:

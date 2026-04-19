@@ -32,39 +32,6 @@ def parse_command(content: str) -> Optional[Command]:
             target = parts[2].strip() if len(parts) > 2 else ""
             return Command(kind="cli_use", argument=target or None)
         return Command(kind="invalid", argument=raw)
-    if cmd == "/archive":
-        sub = parts[1].lower() if len(parts) > 1 else "current"
-        if sub in {"current", "show", "status"}:
-            return Command(kind="archive_current")
-        if sub in {"daily", "at"}:
-            target = " ".join(parts[2:]).strip()
-            return Command(kind="archive_daily", argument=target or None)
-        return Command(kind="invalid", argument=raw)
-    if cmd == "/task":
-        sub = parts[1].lower() if len(parts) > 1 else "list"
-        if sub in {"list", "ls"}:
-            return Command(kind="task_list")
-        if sub in {"status", "show"}:
-            task_id = parts[2].strip() if len(parts) > 2 else ""
-            return Command(kind="task_status", argument=task_id or None)
-        if sub in {"create", "new"}:
-            prompt = " ".join(parts[2:]).strip()
-            return Command(kind="task_create", argument=prompt or None)
-        if sub in {"cancel", "stop"}:
-            task_id = parts[2].strip() if len(parts) > 2 else ""
-            return Command(kind="task_cancel", argument=task_id or None)
-        return Command(kind="invalid", argument=raw)
-    if cmd == "/cron":
-        sub = parts[1].lower() if len(parts) > 1 else "list"
-        if sub in {"list", "ls"}:
-            return Command(kind="cron_list")
-        if sub == "every":
-            argument = " ".join(parts[2:]).strip()
-            return Command(kind="cron_every", argument=argument or None)
-        if sub in {"remove", "delete", "rm"}:
-            schedule_id = parts[2].strip() if len(parts) > 2 else ""
-            return Command(kind="cron_remove", argument=schedule_id or None)
-        return Command(kind="invalid", argument=raw)
     return None
 
 
@@ -73,18 +40,9 @@ def help_text() -> str:
         [
             "Available commands:",
             "/help",
-            "/archive current",
-            "/archive daily <HH:MM>",
             "/cli list",
             "/cli current",
             "/cli use <provider>",
-            "/task list",
-            "/task status <id|index>",
-            "/task create <prompt>",
-            "/task cancel <id>",
-            "/cron list",
-            "/cron every <seconds> <task_id>",
-            "/cron remove <id>",
             "/reset",
         ]
     )
