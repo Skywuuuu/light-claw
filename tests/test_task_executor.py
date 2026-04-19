@@ -1,7 +1,11 @@
 import asyncio
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
+
+sys.modules.setdefault("lark_oapi", types.SimpleNamespace())
 
 from light_claw.archive import WorkspaceArchiveService
 from light_claw.chat import ChatService
@@ -42,7 +46,7 @@ class _FakeRegistry:
     @staticmethod
     def validate_selectable(provider_id):
         normalized = provider_id.strip().lower()
-        if normalized == "codex":
+        if normalized in {"codex", "claude-code"}:
             return True, None
         return False, "Provider not available."
 
@@ -63,7 +67,13 @@ class _FakeRegistry:
                 display_name="Codex",
                 description="test provider",
                 available=True,
-            )
+            ),
+            CliProviderInfo(
+                provider_id="claude-code",
+                display_name="Claude Code",
+                description="test provider",
+                available=True,
+            ),
         ]
 
 
@@ -105,6 +115,10 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             archive_enabled=False,
             archive_dir=Path(tmp_dir) / "archive",
             archive_interval_seconds=43200,
+            claude_bin="claude",
+            claude_model=None,
+            claude_permission_mode="bypassPermissions",
+            claude_add_dirs=[],
             codex_bin="codex",
             codex_model=None,
             codex_search=False,
@@ -113,6 +127,7 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             codex_timeout_max_seconds=900,
             codex_timeout_per_char_ms=80,
             codex_stall_timeout_seconds=120,
+            codex_add_dirs=[],
             task_heartbeat_enabled=True,
             task_heartbeat_interval_seconds=60,
             cron_enabled=True,
@@ -185,6 +200,75 @@ class TaskExecutorTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.session_id, "sess-1")
             self.assertEqual(store.get_workspace_session_id("agent-a", "conv_1", "ou_1", "default"), "sess-1")
             self.assertEqual(communication_channel.messages[-1][2], "done")
+            store.close()
+
+    async def test_cli_provider_switch_clears_existing_workspace_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace_path = Path(tmp_dir) / "default"
+            workspace_path.mkdir(parents=True, exist_ok=True)
+            store = StateStore(Path(tmp_dir) / "state.db")
+            workspace = store.create_workspace(
+                WorkspaceRecord(
+                    agent_id="agent-a",
+                    owner_id="ou_1",
+                    workspace_id="default",
+                    name="Default",
+                    path=workspace_path,
+                    cli_provider="codex",
+                    created_at=0.0,
+                    updated_at=0.0,
+                )
+            )
+            store.set_session_id(
+                "agent-a",
+                "conv_1",
+                "ou_1",
+                workspace.workspace_id,
+                "sess-codex",
+            )
+            runner = _FakeRunner(CliRunResult(session_id="sess-1", answer="done", raw_output=""))
+            communication_channel = _FakeCommunicationChannel()
+            executor = TaskExecutor(
+                settings=self._build_settings(tmp_dir),
+                agent=self._build_agent(),
+                store=store,
+                cli_registry=_FakeRegistry(runner),
+                communication_channel=communication_channel,
+            )
+            chat = ChatService(
+                settings=self._build_settings(tmp_dir),
+                agent=self._build_agent(),
+                store=store,
+                workspace_manager=_FakeWorkspaceManager(),
+                cli_registry=_FakeRegistry(runner),
+                communication_channel=communication_channel,
+                task_executor=executor,
+            )
+
+            await chat.handle_message(
+                InboundMessage(
+                    agent_id="agent-a",
+                    bot_app_id="bot-app",
+                    owner_id="ou_1",
+                    conversation_id="conv_1",
+                    message_id="msg-1",
+                    message_type="text",
+                    content="/cli use claude-code",
+                    reply_target=ReplyTarget("ou_1", "open_id"),
+                )
+            )
+
+            updated = store.get_agent_workspace("agent-a")
+            self.assertEqual(updated.cli_provider, "claude-code")
+            self.assertIsNone(
+                store.get_workspace_session_id(
+                    "agent-a",
+                    "conv_1",
+                    "ou_1",
+                    workspace.workspace_id,
+                )
+            )
+            self.assertIn("starts fresh", communication_channel.messages[-1][2])
             store.close()
 
     async def test_execute_workspace_task_records_run_and_reschedule(self) -> None:

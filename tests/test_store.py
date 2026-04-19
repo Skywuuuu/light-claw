@@ -130,6 +130,34 @@ class StoreTest(unittest.TestCase):
             )
             store.close()
 
+    def test_clear_workspace_sessions_removes_all_sessions_for_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = StateStore(Path(tmp_dir) / "state.db")
+            store.create_workspace(
+                WorkspaceRecord(
+                    agent_id="agent-a",
+                    owner_id="ou_1",
+                    workspace_id="default",
+                    name="Default",
+                    path=Path(tmp_dir) / "default",
+                    cli_provider="codex",
+                    created_at=0.0,
+                    updated_at=0.0,
+                )
+            )
+            store.set_session_id("agent-a", "conv_1", "ou_1", "default", "session-1")
+            store.set_session_id("agent-a", "conv_2", "ou_2", "default", "session-2")
+
+            store.clear_workspace_sessions("agent-a", "default")
+
+            self.assertIsNone(
+                store.get_workspace_session_id("agent-a", "conv_1", "ou_1", "default")
+            )
+            self.assertIsNone(
+                store.get_workspace_session_id("agent-a", "conv_2", "ou_2", "default")
+            )
+            store.close()
+
     def test_workspace_tasks_and_runs_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             store = StateStore(Path(tmp_dir) / "state.db")

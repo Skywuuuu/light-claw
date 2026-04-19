@@ -130,6 +130,25 @@ def _read_codex_sandbox(environ: Mapping[str, str] | None = None) -> str:
     return _normalize_codex_sandbox(raw)
 
 
+def _normalize_claude_permission_mode(raw: str) -> str:
+    normalized = raw.strip()
+    allowed = {
+        "acceptEdits",
+        "bypassPermissions",
+        "default",
+        "dontAsk",
+        "plan",
+    }
+    if normalized in allowed:
+        return normalized
+    mapping = {
+        "acceptedits": "acceptEdits",
+        "bypasspermissions": "bypassPermissions",
+        "dontask": "dontAsk",
+    }
+    return mapping.get(normalized.lower(), "bypassPermissions")
+
+
 def _default_database_path(data_dir: Path) -> Path:
     legacy_database_path = data_dir / f"{LEGACY_APP_NAME}.db"
     if legacy_database_path.exists():
@@ -180,6 +199,10 @@ class Settings:
     archive_enabled: bool
     archive_dir: Path
     archive_interval_seconds: int
+    claude_bin: str
+    claude_model: Optional[str]
+    claude_permission_mode: str
+    claude_add_dirs: list[str]
     codex_bin: str
     codex_model: Optional[str]
     codex_search: bool
@@ -188,6 +211,7 @@ class Settings:
     codex_timeout_max_seconds: int
     codex_timeout_per_char_ms: int
     codex_stall_timeout_seconds: int
+    codex_add_dirs: list[str]
     task_heartbeat_enabled: bool
     task_heartbeat_interval_seconds: int
     cron_enabled: bool
@@ -257,6 +281,20 @@ class Settings:
                 12 * 60 * 60,
                 environ=environ,
             ),
+            claude_bin=_read_str("CLAUDE_BIN", "claude", environ=environ),
+            claude_model=_read_optional_str("CLAUDE_MODEL", environ=environ),
+            claude_permission_mode=_normalize_claude_permission_mode(
+                _read_str(
+                    "CLAUDE_PERMISSION_MODE",
+                    "bypassPermissions",
+                    environ=environ,
+                )
+            ),
+            claude_add_dirs=[
+                d.strip()
+                for d in _read_str("CLAUDE_ADD_DIRS", "", environ=environ).split(":")
+                if d.strip()
+            ],
             codex_bin=_read_str("CODEX_BIN", "codex", environ=environ),
             codex_model=_read_optional_str("CODEX_MODEL", environ=environ),
             codex_search=_read_bool("CODEX_SEARCH", False, environ=environ),
@@ -281,6 +319,11 @@ class Settings:
                 120,
                 environ=environ,
             ),
+            codex_add_dirs=[
+                d.strip()
+                for d in _read_str("CODEX_ADD_DIRS", "", environ=environ).split(":")
+                if d.strip()
+            ],
             task_heartbeat_enabled=_read_bool(
                 "LIGHT_CLAW_TASK_HEARTBEAT_ENABLED",
                 True,
@@ -388,6 +431,8 @@ class Settings:
             raise ValueError("DEFAULT_CLI_PROVIDER must not be empty")
         if self.archive_interval_seconds <= 0:
             raise ValueError("LIGHT_CLAW_ARCHIVE_INTERVAL_SECONDS must be positive")
+        if not self.claude_bin:
+            raise ValueError("CLAUDE_BIN must not be empty")
         if self.codex_stall_timeout_seconds <= 0:
             raise ValueError("CODEX_STALL_TIMEOUT_SECONDS must be positive")
         if self.task_heartbeat_interval_seconds <= 0:

@@ -5,6 +5,7 @@ from typing import Callable, Dict, Iterable, List, Protocol
 
 from ..config import AgentSettings, Settings
 from ..models import CliProviderInfo, CliRunResult
+from .claude_code import ClaudeCodeRuntime
 from .codex_cli import CodexCliRuntime
 
 
@@ -58,6 +59,16 @@ class CliRuntimeRegistry:
             timeout_max_seconds=settings.codex_timeout_max_seconds,
             timeout_per_char_ms=settings.codex_timeout_per_char_ms,
             stall_timeout_seconds=settings.codex_stall_timeout_seconds,
+            extra_writable_dirs=settings.codex_add_dirs,
+        )
+        claude_runtime = ClaudeCodeRuntime(
+            claude_bin=settings.claude_bin,
+            default_model=settings.claude_model,
+            permission_mode=settings.claude_permission_mode,
+            timeout_min_seconds=settings.codex_timeout_min_seconds,
+            timeout_max_seconds=settings.codex_timeout_max_seconds,
+            timeout_per_char_ms=settings.codex_timeout_per_char_ms,
+            extra_writable_dirs=settings.claude_add_dirs,
         )
         providers = [
             CliProviderInfo(
@@ -69,8 +80,8 @@ class CliRuntimeRegistry:
             CliProviderInfo(
                 provider_id="claude-code",
                 display_name="Claude Code",
-                description="Reserved runtime slot for a future Claude Code integration.",
-                available=False,
+                description="Anthropic Claude Code CLI runtime.",
+                available=True,
             ),
             CliProviderInfo(
                 provider_id="custom",
@@ -79,7 +90,13 @@ class CliRuntimeRegistry:
                 available=False,
             ),
         ]
-        return cls(providers=providers, runtimes={"codex": codex_runtime})
+        return cls(
+            providers=providers,
+            runtimes={
+                "codex": codex_runtime,
+                "claude-code": claude_runtime,
+            },
+        )
 
     def list_providers(self) -> List[CliProviderInfo]:
         return list(self._providers.values())
