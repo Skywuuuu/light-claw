@@ -9,7 +9,6 @@ from .config import AgentSettings, Settings
 from .models import WorkspaceRecord
 from .runtime import CliRuntimeRegistry
 from .store import StateStore
-from .task_executor import TaskExecutor
 from .workspaces import WorkspaceManager
 
 
@@ -22,7 +21,6 @@ class ChatCommandHandler:
         workspace_manager: WorkspaceManager,
         cli_registry: CliRuntimeRegistry,
         communication_channel: BaseCommunicationChannel,
-        task_executor: TaskExecutor,
     ) -> None:
         self.settings = settings
         self.agent = agent
@@ -30,7 +28,6 @@ class ChatCommandHandler:
         self.workspace_manager = workspace_manager
         self.cli_registry = cli_registry
         self.communication_channel = communication_channel
-        self.task_executor = task_executor
 
     async def handle(
         self,
@@ -85,7 +82,7 @@ class ChatCommandHandler:
                     updated.agent_id,
                     updated.workspace_id,
                 )
-            response = "\n".join(
+            return "\n".join(
                 ["CLI provider updated.", "{} now uses `{}`.".format(updated.name, updated.cli_provider)]
                 + (
                     [
@@ -95,7 +92,6 @@ class ChatCommandHandler:
                     else []
                 )
             )
-            return response
         if command.kind == "invalid":
             return "Unknown command. Use `/help`."
         return None

@@ -57,7 +57,6 @@ class ChatService:
             workspace_manager=workspace_manager,
             cli_registry=cli_registry,
             communication_channel=communication_channel,
-            task_executor=task_executor,
         )
 
     async def handle_message(self, message: InboundMessage) -> None:
