@@ -40,18 +40,11 @@ class ChatCommandHandler:
         if command.kind == "help":
             return help_text()
         if command.kind == "reset":
-            workspace = self.get_workspace()
             self.store.clear_session(
                 self.agent.agent_id,
                 message.conversation_id,
                 message.owner_id,
             )
-            if workspace is not None:
-                self.task_executor.clear_observations(
-                    workspace=workspace,
-                    conversation_id=message.conversation_id,
-                    conversation_owner_id=message.owner_id,
-                )
             return "Current workspace session cleared. The next message will start a new session."
         if command.kind == "cli_list":
             workspace = self.ensure_workspace()
@@ -92,7 +85,6 @@ class ChatCommandHandler:
                     updated.agent_id,
                     updated.workspace_id,
                 )
-                self.task_executor.clear_workspace_observations(workspace=updated)
             response = "\n".join(
                 ["CLI provider updated.", "{} now uses `{}`.".format(updated.name, updated.cli_provider)]
                 + (
@@ -102,13 +94,6 @@ class ChatCommandHandler:
                     if session_reset
                     else []
                 )
-            )
-            self._record_command_observation(
-                workspace=updated,
-                message=message,
-                command_kind=command.kind,
-                response=response,
-                context_key=updated.cli_provider,
             )
             return response
         if command.kind == "invalid":
@@ -143,27 +128,6 @@ class ChatCommandHandler:
             agent_name=self.agent.name,
             skills_path=self.agent.skills_path,
             mcp_config_path=self.agent.mcp_config_path,
-        )
-
-    def _record_command_observation(
-        self,
-        *,
-        workspace: WorkspaceRecord,
-        message: InboundMessage,
-        command_kind: str,
-        response: str,
-        context_key: str | None = None,
-    ) -> None:
-        normalized_context = command_kind
-        if context_key:
-            normalized_context = "{}:{}".format(command_kind, context_key)
-        self.task_executor.record_observation(
-            workspace=workspace,
-            conversation_id=message.conversation_id,
-            conversation_owner_id=message.owner_id,
-            kind="command_result",
-            text=response,
-            context_key=normalized_context,
         )
 
     def _render_cli_list(self, current_provider_id: str) -> str:
