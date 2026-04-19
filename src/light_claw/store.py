@@ -3,9 +3,8 @@ from __future__ import annotations
 import sqlite3
 import threading
 import time
-import uuid
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import List, Optional
 
 from .config import DEFAULT_AGENT_ID
 from .models import WorkspaceRecord
