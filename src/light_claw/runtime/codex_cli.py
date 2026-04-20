@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from pathlib import Path
 from typing import Callable
 
@@ -76,6 +77,7 @@ class CodexCliRuntime:
         timeout_per_char_ms: int = 80,
         stall_timeout_seconds: int = 120,
         extra_writable_dirs: list[str] | None = None,
+        config_dir: Path | None = None,
     ) -> None:
         self.codex_bin = codex_bin
         self.sandbox = sandbox
@@ -86,6 +88,107 @@ class CodexCliRuntime:
         self.timeout_max_seconds = timeout_max_seconds
         self.timeout_per_char_ms = timeout_per_char_ms
         self.stall_timeout_seconds = stall_timeout_seconds
+        self._config_dir = config_dir or Path.home() / ".codex"
+
+    def list_skills(self) -> dict[str, list[tuple[str, str]]]:
+        """Discover installed and enabled Codex skills.
+
+        Returns dict mapping source label to list of (name, description) pairs.
+        Scans ~/.codex/skills/ for standalone skills and walks the plugin cache
+        directory for plugin-bundled skills. Checks config.toml for enabled state.
+        """
+        from ._skills import scan_skills_dir
+
+        result: dict[str, list[tuple[str, str]]] = {}
+
+        # Standalone skills in <config_dir>/skills/
+        standalone = scan_skills_dir(self._config_dir / "skills")
+        if standalone:
+            result["Standalone skills"] = standalone
+
+        # Plugin-bundled skills from cache
+        cache_dir = self._config_dir / "plugins" / "cache"
+        if not cache_dir.is_dir():
+            return result
+
+        enabled = self._read_enabled_plugins()
+
+        for marketplace_dir in sorted(cache_dir.iterdir()):
+            if not marketplace_dir.is_dir() or marketplace_dir.name.startswith("."):
+                continue
+            for plugin_name_dir in sorted(marketplace_dir.iterdir()):
+                if not plugin_name_dir.is_dir() or plugin_name_dir.name.startswith("."):
+                    continue
+                for version_dir in sorted(plugin_name_dir.iterdir()):
+                    if not version_dir.is_dir() or version_dir.name.startswith("."):
+                        continue
+                    plugin_id = "{}@{}".format(
+                        plugin_name_dir.name, marketplace_dir.name
+                    )
+                    if enabled is not None and not enabled.get(plugin_id, True):
+                        continue
+
+                    metadata = self._read_codex_plugin_json(version_dir)
+                    name = metadata.get("name", plugin_name_dir.name)
+                    version = metadata.get("version", "")
+                    label = name
+                    if version:
+                        label = "{} (v{})".format(name, version)
+
+                    plugin_skills = scan_skills_dir(version_dir / "skills")
+                    if plugin_skills:
+                        result[label] = plugin_skills
+
+        return result
+
+    def _read_codex_plugin_json(self, plugin_dir: Path) -> dict:
+        """Read .codex-plugin/plugin.json for name and version."""
+        meta_path = plugin_dir / ".codex-plugin" / "plugin.json"
+        if not meta_path.is_file():
+            return {}
+        try:
+            return json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _read_enabled_plugins(self) -> dict[str, bool] | None:
+        """Parse plugin enabled state from config.toml.
+
+        Returns a dict of {plugin_id: enabled} or None if config cannot be read.
+        When None, callers should assume all installed plugins are enabled.
+        """
+        config_path = self._config_dir / "config.toml"
+        if not config_path.is_file():
+            return None
+        try:
+            text = config_path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return self._parse_toml_enabled_plugins(text)
+
+    @staticmethod
+    def _parse_toml_enabled_plugins(text: str) -> dict[str, bool]:
+        """Extract [plugins."name"] enabled states from config.toml.
+
+        Simple string parser for the specific TOML pattern used by Codex.
+        No TOML library required.
+        """
+        result: dict[str, bool] = {}
+        current_plugin: str | None = None
+        for line in text.splitlines():
+            stripped = line.strip()
+            match = re.match(r'^\[plugins\."(.+?)"\]$', stripped)
+            if match:
+                current_plugin = match.group(1)
+                result[current_plugin] = True
+                continue
+            if stripped.startswith("["):
+                current_plugin = None
+                continue
+            if current_plugin and stripped.startswith("enabled"):
+                if "false" in stripped.lower():
+                    result[current_plugin] = False
+        return result
 
     async def run(
         self,
