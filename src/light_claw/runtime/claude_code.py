@@ -52,6 +52,7 @@ class ClaudeCodeRuntime:
         timeout_max_seconds: int = 900,
         timeout_per_char_ms: int = 80,
         extra_writable_dirs: list[str] | None = None,
+        config_dir: Path | None = None,
     ) -> None:
         self.claude_bin = claude_bin
         self.default_model = default_model
@@ -60,6 +61,57 @@ class ClaudeCodeRuntime:
         self.timeout_max_seconds = timeout_max_seconds
         self.timeout_per_char_ms = timeout_per_char_ms
         self.extra_writable_dirs = extra_writable_dirs or []
+        self._config_dir = config_dir or Path.home() / ".claude"
+
+    def list_skills(self) -> dict[str, list[tuple[str, str]]]:
+        """Discover installed and enabled Claude Code skills.
+
+        Returns dict mapping source label to list of (name, description) pairs.
+        """
+        from ._skills import scan_skills_dir
+
+        result: dict[str, list[tuple[str, str]]] = {}
+
+        # Standalone skills
+        standalone = scan_skills_dir(self._config_dir / "skills")
+        if standalone:
+            result["Standalone skills"] = standalone
+
+        # Plugin-bundled skills via installed_plugins.json
+        registry_path = self._config_dir / "plugins" / "installed_plugins.json"
+        if not registry_path.is_file():
+            return result
+
+        try:
+            registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return result
+
+        enabled: dict[str, bool] = {}
+        settings_path = self._config_dir / "settings.json"
+        if settings_path.is_file():
+            try:
+                settings_data = json.loads(
+                    settings_path.read_text(encoding="utf-8")
+                )
+                enabled = settings_data.get("enabledPlugins", {})
+            except (OSError, json.JSONDecodeError):
+                pass
+
+        for plugin_id, installs in registry.get("plugins", {}).items():
+            if not enabled.get(plugin_id, False):
+                continue
+            for install in installs:
+                install_path = Path(install.get("installPath", ""))
+                plugin_skills = scan_skills_dir(install_path / "skills")
+                if plugin_skills:
+                    label = plugin_id.split("@")[0]
+                    version = install.get("version", "")
+                    if version:
+                        label = "{} (v{})".format(label, version)
+                    result[label] = plugin_skills
+
+        return result
 
     async def run(
         self,

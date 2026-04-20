@@ -1,4 +1,7 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from light_claw.runtime import ClaudeCodeRuntime, parse_claude_code_output
 
@@ -61,6 +64,81 @@ class ClaudeCodeRuntimeTest(unittest.TestCase):
                 "test prompt",
             ],
         )
+
+
+class ClaudeCodeSkillDiscoveryTest(unittest.TestCase):
+    def test_discovers_standalone_skills(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            skill_dir = config_dir / "skills" / "pdf"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: pdf\ndescription: PDF tools\n---\n", encoding="utf-8"
+            )
+            runtime = ClaudeCodeRuntime(config_dir=config_dir)
+            result = runtime.list_skills()
+            self.assertIn("Standalone skills", result)
+            self.assertEqual(result["Standalone skills"], [("pdf", "PDF tools")])
+
+    def test_discovers_enabled_plugin_skills(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            plugin_dir = config_dir / "plugins" / "cache" / "mp" / "myplugin" / "1.0.0"
+            skill_dir = plugin_dir / "skills" / "tdd"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: tdd\ndescription: Test-driven dev\n---\n", encoding="utf-8"
+            )
+            (config_dir / "plugins").mkdir(exist_ok=True)
+            (config_dir / "plugins" / "installed_plugins.json").write_text(
+                json.dumps({
+                    "version": 2,
+                    "plugins": {
+                        "myplugin@mp": [
+                            {"installPath": str(plugin_dir), "version": "1.0.0"}
+                        ]
+                    },
+                }),
+                encoding="utf-8",
+            )
+            (config_dir / "settings.json").write_text(
+                json.dumps({"enabledPlugins": {"myplugin@mp": True}}),
+                encoding="utf-8",
+            )
+            runtime = ClaudeCodeRuntime(config_dir=config_dir)
+            result = runtime.list_skills()
+            self.assertIn("myplugin (v1.0.0)", result)
+            self.assertEqual(result["myplugin (v1.0.0)"], [("tdd", "Test-driven dev")])
+
+    def test_skips_disabled_plugin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            plugin_dir = config_dir / "plugins" / "cache" / "mp" / "off" / "1.0"
+            skill_dir = plugin_dir / "skills" / "nope"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: nope\ndescription: Disabled\n---\n", encoding="utf-8"
+            )
+            (config_dir / "plugins").mkdir(exist_ok=True)
+            (config_dir / "plugins" / "installed_plugins.json").write_text(
+                json.dumps({
+                    "version": 2,
+                    "plugins": {
+                        "off@mp": [{"installPath": str(plugin_dir), "version": "1.0"}]
+                    },
+                }),
+                encoding="utf-8",
+            )
+            (config_dir / "settings.json").write_text(
+                json.dumps({"enabledPlugins": {"off@mp": False}}),
+                encoding="utf-8",
+            )
+            runtime = ClaudeCodeRuntime(config_dir=config_dir)
+            self.assertEqual(runtime.list_skills(), {})
+
+    def test_returns_empty_for_nonexistent_config_dir(self) -> None:
+        runtime = ClaudeCodeRuntime(config_dir=Path("/nonexistent"))
+        self.assertEqual(runtime.list_skills(), {})
 
 
 if __name__ == "__main__":
