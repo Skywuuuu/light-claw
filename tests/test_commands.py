@@ -26,6 +26,16 @@ class CommandsTest(unittest.TestCase):
         self.assertIn("/cli use <provider>", text)
         self.assertIn("/reset", text)
 
+    def test_parse_skills(self) -> None:
+        command = parse_command("/skills")
+        self.assertIsNotNone(command)
+        self.assertEqual(command.kind, "skills")
+        self.assertIsNone(command.argument)
+
+    def test_help_text_includes_skills(self) -> None:
+        text = help_text()
+        self.assertIn("/skills", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Protocol
+from typing import Callable, Dict, Iterable, List, Protocol, Tuple
 
 from ..config import AgentSettings, Settings
 from ..models import CliProviderInfo, CliRunResult
@@ -23,6 +23,9 @@ class CliRuntime(Protocol):
         session_id: str | None = None,
         on_activity: Callable[[], None] | None = None,
     ) -> CliRunResult:
+        ...
+
+    def list_skills(self) -> Dict[str, List[Tuple[str, str]]]:
         ...
 
 
