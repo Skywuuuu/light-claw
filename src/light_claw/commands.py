@@ -32,6 +32,8 @@ def parse_command(content: str) -> Optional[Command]:
             target = parts[2].strip() if len(parts) > 2 else ""
             return Command(kind="cli_use", argument=target or None)
         return Command(kind="invalid", argument=raw)
+    if cmd == "/skills":
+        return Command(kind="skills")
     return None
 
 
@@ -40,6 +42,7 @@ def help_text() -> str:
         [
             "Available commands:",
             "/help",
+            "/skills",
             "/cli list",
             "/cli current",
             "/cli use <provider>",

@@ -92,6 +92,9 @@ class ChatCommandHandler:
                     else []
                 )
             )
+        if command.kind == "skills":
+            workspace = self.ensure_workspace()
+            return self._render_skills(workspace.cli_provider)
         if command.kind == "invalid":
             return "Unknown command. Use `/help`."
         return None
@@ -141,6 +144,56 @@ class ChatCommandHandler:
             skills_path=self.agent.skills_path,
             mcp_config_path=self.agent.mcp_config_path,
         )
+
+    def _render_skills(self, provider_id: str) -> str:
+        provider = self.cli_registry.get_provider(provider_id)
+        runtime = self.cli_registry.get_runtime(provider_id)
+        display = provider.display_name if provider else provider_id
+
+        lines = ["{} ({}) available skills".format(display, provider_id), ""]
+
+        skill_groups = runtime.list_skills()
+        if skill_groups:
+            for source, skills in skill_groups.items():
+                lines.append("{}:".format(source))
+                for name, desc in skills:
+                    if desc:
+                        lines.append("  - {} — {}".format(name, desc))
+                    else:
+                        lines.append("  - {}".format(name))
+                lines.append("")
+
+        mcp_section = self._read_mcp_section()
+        if mcp_section:
+            lines.extend(mcp_section)
+            lines.append("")
+
+        if not skill_groups and not self.agent.mcp_config_path:
+            lines.append("No skills or MCP tools found for this agent.")
+
+        return "\n".join(lines)
+
+    def _read_mcp_section(self) -> list[str] | None:
+        import json
+
+        mcp_path = self.agent.mcp_config_path
+        if not mcp_path:
+            return None
+        lines = ["Configured MCP tools:", "  Source: {}".format(mcp_path)]
+        if not mcp_path.is_file():
+            lines.append("  (path not found)")
+            return lines
+        try:
+            data = json.loads(mcp_path.read_text(encoding="utf-8"))
+            servers = data.get("mcpServers", {})
+            if servers:
+                for name in sorted(servers.keys()):
+                    lines.append("  - {}".format(name))
+            else:
+                lines.append("  (no servers configured)")
+        except (OSError, json.JSONDecodeError):
+            lines.append("  (unable to parse)")
+        return lines
 
     def _render_cli_list(self, current_provider_id: str) -> str:
         lines = ["CLI providers:"]
